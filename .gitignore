@@ -1,0 +1,23 @@
+# 构建产物
+classes/
+target/
+*.class
+
+# 本地编译用的依赖 jar（通过 Maven 或自行下载）
+paper-api.jar
+adventure-api.jar
+adventure-key.jar
+examination-api.jar
+annotations.jar
+bungee-chat.jar
+guava.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.eclipse/
+bin/
+
+# 构建产物 jar 请通过 GitHub Releases 发布
+ArchitectBlocks-*.jar
