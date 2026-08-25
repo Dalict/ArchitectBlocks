@@ -48,6 +48,7 @@ public class MenuListener implements Listener {
             event.getView().close();
             return;
         }
+        MenuHolder holder = (MenuHolder) top.getHolder();
         // 黑名单管理页：点击自己背包中的物品 = 加入黑名单
         if (holder.getType() == MenuHolder.Type.ADMIN_LIST
                 && event.getClickedInventory() != null
@@ -64,7 +65,6 @@ public class MenuListener implements Listener {
         if (event.getClickedInventory() != top) {
             return;
         }
-        MenuHolder holder = (MenuHolder) top.getHolder();
         int slot = event.getSlot();
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) {
