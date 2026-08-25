@@ -13,9 +13,11 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * ArchitectBlocks - 自动检索服务器全部物品并分类的材料菜单插件
@@ -27,11 +29,15 @@ public class ArchitectBlocks extends JavaPlugin {
     public static final String PERM_ADMIN = "architectblocks.admin";
 
     private CategoryManager categoryManager;
+    private Database db;
     private final Map<Integer, Category> categorySlotMap = new HashMap<>();
+    private final Map<UUID, Long> giveCooldown = new HashMap<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        db = new Database(this);
+        db.init();
         categoryManager = new CategoryManager(this);
         categoryManager.reload();
         Bukkit.getPluginManager().registerEvents(new MenuListener(this), this);
@@ -48,11 +54,20 @@ public class ArchitectBlocks extends JavaPlugin {
             }
             reloadConfig();
             categoryManager.reload();
-            if (sender instanceof Player) {
-                sender.sendMessage(getMessage("reloaded"));
-            } else {
-                sender.sendMessage(org.bukkit.ChatColor.stripColor(getMessage("reloaded")));
+            sendColored(sender, getMessage("reloaded"));
+            return true;
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("admin")) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage("该命令只能由玩家执行");
+                return true;
             }
+            Player player = (Player) sender;
+            if (!player.hasPermission(PERM_ADMIN)) {
+                player.sendMessage(getMessage("no-permission"));
+                return true;
+            }
+            openAdminMain(player);
             return true;
         }
         if (!(sender instanceof Player)) {
@@ -60,7 +75,7 @@ public class ArchitectBlocks extends JavaPlugin {
             return true;
         }
         Player player = (Player) sender;
-        if (!player.hasPermission(PERM_USE)) {
+        if (!canUse(player)) {
             player.sendMessage(getMessage("no-permission"));
             return true;
         }
@@ -68,7 +83,22 @@ public class ArchitectBlocks extends JavaPlugin {
         return true;
     }
 
-    /** 分类选择菜单：分类按钮从第二行起每行 7 个居中，底排为关闭按钮 + 玻璃板 */
+    /** 管理员无需额外授予 use 权限即可使用菜单 */
+    public boolean canUse(Player player) {
+        return player.hasPermission(PERM_USE) || player.hasPermission(PERM_ADMIN);
+    }
+
+    private void sendColored(CommandSender sender, String msg) {
+        if (sender instanceof Player) {
+            sender.sendMessage(msg);
+        } else {
+            sender.sendMessage(ChatColor.stripColor(msg));
+        }
+    }
+
+    // ==================== 玩家菜单 ====================
+
+    /** 分类选择菜单：分类按钮居中，底排为 管理员设置(仅管理员可见) / 背包已有 / 关闭 + 玻璃板 */
     public void openCategoryMenu(Player player) {
         categorySlotMap.clear();
         List<Category> enabled = new ArrayList<>();
@@ -78,13 +108,11 @@ public class ArchitectBlocks extends JavaPlugin {
             }
         }
         int size = normalizeSize(getGuiConfigInt("category-menu-size", 27));
-        // 自动扩容：开启的分类超过当前尺寸容量时增大菜单，保证全部可见 (27格=7个, 36格=14个)
         while (size < 54 && enabled.size() > categoryCapacity(size)) {
             size += 9;
         }
-        String title = color(getMessage("title-categories"));
         MenuHolder holder = new MenuHolder(MenuHolder.Type.CATEGORIES, null, 0);
-        Inventory inv = Bukkit.createInventory(holder, size, title);
+        Inventory inv = Bukkit.createInventory(holder, size, color(getMessage("title-categories")));
         holder.setInventory(inv);
 
         int bottomStart = size - 9;
@@ -100,7 +128,7 @@ public class ArchitectBlocks extends JavaPlugin {
                 List<String> lore = new ArrayList<>();
                 for (String line : getConfig().getStringList("gui.category-lore")) {
                     lore.add(color(line.replace("%name%", c.getDisplayName())
-                            .replace("%count%", String.valueOf(categoryManager.getItems(c).size()))));
+                            .replace("%count%", String.valueOf(categoryManager.getDisplayItems(c).size()))));
                 }
                 String name = color(getGuiConfigString("names.category", "&8[ &f%name% &8]")
                         .replace("%name%", c.getDisplayName()));
@@ -109,18 +137,31 @@ public class ArchitectBlocks extends JavaPlugin {
             }
         }
 
+        boolean isAdmin = player.hasPermission(PERM_ADMIN);
         int closeSlot = bottomStart + 4;
         inv.setItem(closeSlot, icon(material("close-button", Material.CLOCK),
                 color(getGuiConfigString("names.close", "&8[ &b关闭菜单 &8]"))));
-        fillPanes(inv, bottomStart, size - 1, closeSlot);
+        int invSlot = bottomStart + 2;
+        inv.setItem(invSlot, icon(material("inv-button", Material.HOPPER),
+                color(getGuiConfigString("names.inv", "&8[ &e获取背包已有的物品 &8]")),
+                color(getMessage("inv-lore"))));
+        if (isAdmin) {
+            inv.setItem(bottomStart, icon(material("admin-button", Material.COMMAND_BLOCK),
+                    color(getGuiConfigString("names.admin", "&8[ &c管理员设置 &8]"))));
+        }
+        List<Integer> reserved = new ArrayList<>(Arrays.asList(closeSlot, invSlot));
+        if (isAdmin) {
+            reserved.add(bottomStart);
+        }
+        fillPanes(inv, bottomStart, size - 1, toInts(reserved));
         player.openInventory(inv);
     }
 
-    /** 物品分页菜单：物品区为 size-9 格，底排为 上一页(左下) / 返回(中) / 下一页(右下) */
+    /** 物品分页菜单（每次翻页都会把当前页写入数据库，供下次恢复） */
     public void openItemMenu(Player player, Category category, int page) {
-        List<Material> items = categoryManager.getItems(category);
+        List<Material> items = categoryManager.getDisplayItems(category);
         int size = normalizeSize(getGuiConfigInt("item-menu-size", 54));
-        if (size < 18) size = 18; // 物品区至少 9 格，避免 pageSize 为 0
+        if (size < 18) size = 18;
         int pageSize = size - 9;
         int maxPage = Math.max(1, (items.size() + pageSize - 1) / pageSize);
         if (page < 0) page = 0;
@@ -133,23 +174,13 @@ public class ArchitectBlocks extends JavaPlugin {
         MenuHolder holder = new MenuHolder(MenuHolder.Type.ITEMS, category, page);
         Inventory inv = Bukkit.createInventory(holder, size, title);
         holder.setInventory(inv);
+        db.setPage(player.getUniqueId(), category.getConfigKey(), page);
 
-        int amount = getClickAmount();
-        for (int i = 0; i < pageSize; i++) {
-            int index = page * pageSize + i;
-            if (index >= items.size()) break;
-            Material mat = items.get(index);
-            // 按物品实际最大堆叠数显示获取数量，非堆叠/小堆叠物品不会误导性地显示 64
-            int shown = Math.min(amount, mat.getMaxStackSize());
-            String lore = color(getMessage("item-lore").replace("%amount%", String.valueOf(shown)));
-            inv.setItem(i, icon(mat, null, lore));
-        }
-
+        fillItemGrid(inv, items, page, pageSize);
         int bottomStart = size - 9;
         int backSlot = bottomStart + 4;
         List<Integer> reserved = new ArrayList<>();
         reserved.add(backSlot);
-        // 循环翻页：超过一页时两个箭头始终显示，末页点下一页回到首页，首页点上一页到末页
         if (maxPage > 1) {
             int prevSlot = bottomStart;
             inv.setItem(prevSlot, icon(material("prev-button", Material.ARROW),
@@ -162,21 +193,237 @@ public class ArchitectBlocks extends JavaPlugin {
         }
         inv.setItem(backSlot, icon(material("back-button", Material.CLOCK),
                 color(getGuiConfigString("names.back", "&8[ &a返回分类菜单 &8]"))));
-        int[] reservedSlots = new int[reserved.size()];
-        for (int i = 0; i < reservedSlots.length; i++) {
-            reservedSlots[i] = reserved.get(i);
-        }
-        fillPanes(inv, bottomStart, size - 1, reservedSlots);
+        fillPanes(inv, bottomStart, size - 1, toInts(reserved));
         player.openInventory(inv);
     }
 
-    /** 当前尺寸下分类按钮的容量：每行 7 个，行从 10 开始到底排之前 */
+    /** 背包已有物品菜单（替代搜索：把想要的东西放进背包再点进来） */
+    public void openInventoryMenu(Player player, int page) {
+        List<Material> items = categoryManager.getInventoryItems(player);
+        int size = normalizeSize(getGuiConfigInt("item-menu-size", 54));
+        if (size < 18) size = 18;
+        int pageSize = size - 9;
+        int maxPage = Math.max(1, (items.size() + pageSize - 1) / pageSize);
+        if (page < 0) page = 0;
+        if (page >= maxPage) page = maxPage - 1;
+
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.INV, null, page);
+        Inventory inv = Bukkit.createInventory(holder, size, color(getMessage("title-inv")
+                .replace("%page%", String.valueOf(page + 1))
+                .replace("%max%", String.valueOf(maxPage))));
+        holder.setInventory(inv);
+
+        if (!items.isEmpty()) {
+            fillItemGrid(inv, items, page, pageSize);
+        }
+        int bottomStart = size - 9;
+        int backSlot = bottomStart + 4;
+        List<Integer> reserved = new ArrayList<>();
+        reserved.add(backSlot);
+        if (maxPage > 1) {
+            int prevSlot = bottomStart;
+            inv.setItem(prevSlot, icon(material("prev-button", Material.ARROW),
+                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
+            reserved.add(prevSlot);
+            int nextSlot = size - 1;
+            inv.setItem(nextSlot, icon(material("next-button", Material.ARROW),
+                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
+            reserved.add(nextSlot);
+        }
+        inv.setItem(backSlot, icon(material("back-button", Material.CLOCK),
+                color(getGuiConfigString("names.back", "&8[ &a返回分类菜单 &8]"))));
+        fillPanes(inv, bottomStart, size - 1, toInts(reserved));
+        player.openInventory(inv);
+    }
+
+    // ==================== 管理员菜单 ====================
+
+    /** 管理主页：黑名单列表 / 白名单列表 / 分类与功能开关 */
+    public void openAdminMain(Player player) {
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_MAIN, null, 0);
+        Inventory inv = Bukkit.createInventory(holder, 27, color(getMessage("title-admin-main")));
+        holder.setInventory(inv);
+
+        inv.setItem(11, icon(material("blacklist-button", Material.BLACK_WOOL),
+                color(getGuiConfigString("names.blacklist-list", "&8[ &c物品黑名单列表 &8]")),
+                color(getMessage("blacklist-list-lore"))));
+        inv.setItem(13, icon(material("whitelist-button", Material.WHITE_WOOL),
+                color(getGuiConfigString("names.whitelist-list", "&8[ &f物品白名单列表 &8]")),
+                color(getMessage("whitelist-list-lore"))));
+        inv.setItem(15, icon(material("toggle-button", Material.COMPARATOR),
+                color(getGuiConfigString("names.cats", "&8[ &6分类与功能开关 &8]")),
+                color(getMessage("cats-lore"))));
+
+        int bottomStart = 18;
+        inv.setItem(bottomStart + 4, icon(material("close-button", Material.CLOCK),
+                color(getGuiConfigString("names.close", "&8[ &b关闭菜单 &8]"))));
+        fillPanes(inv, bottomStart, 26, bottomStart + 4);
+        player.openInventory(inv);
+    }
+
+    /** 分类与功能开关页：10 个分类 + 管理员物品开关，点击即切换并实时生效 */
+    public void openAdminCats(Player player) {
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_CATS, null, 0);
+        Inventory inv = Bukkit.createInventory(holder, 36, color(getMessage("title-admin-cats")));
+        holder.setInventory(inv);
+
+        List<Category> all = new ArrayList<>(Arrays.asList(Category.values()));
+        int rowCap = 7;
+        int placed = 0;
+        for (int row = 0; placed < all.size() && 10 + row * 9 < 27; row++) {
+            int rowStart = 10 + row * 9;
+            int inRow = Math.min(all.size() - placed, rowCap);
+            int offset = (rowCap - inRow) / 2;
+            for (int i = 0; i < inRow; i++) {
+                Category c = all.get(placed++);
+                int slot = rowStart + offset + i;
+                boolean on = categoryManager.isEnabled(c);
+                inv.setItem(slot, icon(categoryMaterial(c),
+                        color(getGuiConfigString("names.category", "&8[ &f%name% &8]")
+                                .replace("%name%", c.getDisplayName())),
+                        stateLine(on),
+                        color(getMessage("click-toggle"))));
+            }
+        }
+        boolean allowAdmin = categoryManager.isAllowAdminItems();
+        inv.setItem(28, icon(material("admin-items-button", Material.BEDROCK),
+                color(getGuiConfigString("names.admin-items", "&8[ &4允许管理员物品 &8]")),
+                stateLine(allowAdmin),
+                color(getMessage("admin-items-lore")),
+                color(getMessage("click-toggle"))));
+
+        int bottomStart = 27;
+        inv.setItem(bottomStart + 4, icon(material("back-button", Material.CLOCK),
+                color(getGuiConfigString("names.back-admin", "&8[ &a返回管理主页 &8]"))));
+        fillPanes(inv, bottomStart, 35, bottomStart + 4, 28);
+        player.openInventory(inv);
+    }
+
+    /** 黑/白名单管理页：列出全部物品，点击切换到对面名单，Shift 点击清除标记 */
+    public void openAdminList(Player player, String mode, int page, boolean invFilter) {
+        List<Material> items = categoryManager.getAllItems();
+        if (invFilter) {
+            List<Material> owned = categoryManager.getInventoryItems(player);
+            items = new ArrayList<>(items);
+            items.retainAll(owned);
+        }
+        int size = 54;
+        int pageSize = size - 9;
+        int maxPage = Math.max(1, (items.size() + pageSize - 1) / pageSize);
+        if (page < 0) page = 0;
+        if (page >= maxPage) page = maxPage - 1;
+
+        String title = color(getMessage("black".equals(mode) ? "title-admin-list-black" : "title-admin-list-white")
+                .replace("%page%", String.valueOf(page + 1))
+                .replace("%max%", String.valueOf(maxPage))
+                .replace("%filter%", invFilter ? getMessage("filter-on") : getMessage("filter-off")));
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_LIST, null, page, mode, invFilter);
+        Inventory inv = Bukkit.createInventory(holder, size, title);
+        holder.setInventory(inv);
+
+        for (int i = 0; i < pageSize; i++) {
+            int index = page * pageSize + i;
+            if (index >= items.size()) break;
+            Material mat = items.get(index);
+            MaterialFlag flag = db.getFlag(mat);
+            String state = flag == MaterialFlag.BLACK ? getMessage("state-black")
+                    : flag == MaterialFlag.WHITE ? getMessage("state-white") : getMessage("state-normal");
+            List<String> lore = new ArrayList<>();
+            lore.add(state);
+            if (categoryManager.isAdminItem(mat)) {
+                lore.add(getMessage("state-admin-item"));
+            }
+            lore.add("");
+            lore.add(color(getMessage("black".equals(mode) ? "list-click-black" : "list-click-white")));
+            inv.setItem(i, icon(mat, null, lore.toArray(new String[0])));
+        }
+
+        int bottomStart = size - 9;
+        List<Integer> reserved = new ArrayList<>();
+        if (maxPage > 1) {
+            inv.setItem(bottomStart, icon(material("prev-button", Material.ARROW),
+                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
+            reserved.add(bottomStart);
+            inv.setItem(size - 1, icon(material("next-button", Material.ARROW),
+                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
+            reserved.add(size - 1);
+        }
+        int filterSlot = bottomStart + 2;
+        inv.setItem(filterSlot, icon(material("filter-button", Material.HOPPER),
+                color(getMessage("filter-name")) + (invFilter ? getMessage("filter-on") : getMessage("filter-off"))));
+        reserved.add(filterSlot);
+        int backSlot = bottomStart + 4;
+        inv.setItem(backSlot, icon(material("back-button", Material.CLOCK),
+                color(getGuiConfigString("names.back-admin", "&8[ &a返回管理主页 &8]"))));
+        reserved.add(backSlot);
+        fillPanes(inv, bottomStart, size - 1, toInts(reserved));
+        player.openInventory(inv);
+    }
+
+    // ==================== 公共逻辑 ====================
+
+    /** 填充物品网格（lore 数量按最大堆叠自适应） */
+    private void fillItemGrid(Inventory inv, List<Material> items, int page, int pageSize) {
+        int amount = getClickAmount();
+        for (int i = 0; i < pageSize; i++) {
+            int index = page * pageSize + i;
+            if (index >= items.size()) break;
+            Material mat = items.get(index);
+            int shown = Math.min(amount, mat.getMaxStackSize());
+            String lore = color(getMessage("item-lore").replace("%amount%", String.valueOf(shown)));
+            inv.setItem(i, icon(mat, null, lore));
+        }
+    }
+
+    private String stateLine(boolean on) {
+        return color(on ? getMessage("state-enabled") : getMessage("state-disabled"));
+    }
+
+    /** 取物冷却检查；返回 true 表示允许给予 */
+    public boolean checkGiveCooldown(Player player) {
+        long cd = Math.max(0, getConfig().getLong("settings.give-cooldown-ms", 1000L));
+        if (cd <= 0) {
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        Long last = giveCooldown.get(player.getUniqueId());
+        if (last != null && now - last < cd) {
+            return false;
+        }
+        giveCooldown.put(player.getUniqueId(), now);
+        return true;
+    }
+
+    public CategoryManager getCategoryManager() {
+        return categoryManager;
+    }
+
+    public Database getDb() {
+        return db;
+    }
+
+    Map<Integer, Category> getCategorySlotMap() {
+        return categorySlotMap;
+    }
+
+    int getClickAmount() {
+        int amount = getConfig().getInt("settings.click-amount", 64);
+        return Math.max(1, Math.min(64, amount));
+    }
+
+    String getMessage(String key) {
+        return color(getConfig().getString("messages." + key, "&c缺少消息配置: " + key));
+    }
+
+    static String color(String text) {
+        return ChatColor.translateAlternateColorCodes('&', text == null ? "" : text);
+    }
+
     private int categoryCapacity(int size) {
         int rows = Math.max(0, (size - 9 - 10 + 8) / 9);
         return rows * 7;
     }
 
-    /** 底排空位填玻璃板 */
     private void fillPanes(Inventory inv, int from, int to, int... reserved) {
         if (!getConfig().getBoolean("gui.use-pane", true)) {
             return;
@@ -193,7 +440,14 @@ public class ArchitectBlocks extends JavaPlugin {
         }
     }
 
-    /** 尺寸规范化为 9 的倍数且在 9-54 之间 */
+    private int[] toInts(List<Integer> list) {
+        int[] arr = new int[list.size()];
+        for (int i = 0; i < arr.length; i++) {
+            arr[i] = list.get(i);
+        }
+        return arr;
+    }
+
     private int normalizeSize(int size) {
         if (size < 9) size = 9;
         if (size > 54) size = 54;
@@ -210,7 +464,6 @@ public class ArchitectBlocks extends JavaPlugin {
         }
     }
 
-    /** 分类图标：优先读 gui.icons.<分类key>，未配置用内置默认 */
     private Material categoryMaterial(Category category) {
         String name = getConfig().getString("gui.icons." + category.getConfigKey(), "");
         if (name == null || name.isEmpty()) {
@@ -231,27 +484,6 @@ public class ArchitectBlocks extends JavaPlugin {
 
     private String getGuiConfigString(String key, String def) {
         return getConfig().getString("gui." + key, def);
-    }
-
-    int getClickAmount() {
-        int amount = getConfig().getInt("settings.click-amount", 64);
-        return Math.max(1, Math.min(64, amount));
-    }
-
-    CategoryManager getCategoryManager() {
-        return categoryManager;
-    }
-
-    Map<Integer, Category> getCategorySlotMap() {
-        return categorySlotMap;
-    }
-
-    String getMessage(String key) {
-        return color(getConfig().getString("messages." + key, "&c缺少消息配置: " + key));
-    }
-
-    static String color(String text) {
-        return ChatColor.translateAlternateColorCodes('&', text == null ? "" : text);
     }
 
     static ItemStack icon(Material material, String name, String... lore) {

@@ -1,20 +1,22 @@
 package com.dalict.architectblocks;
 
 import org.bukkit.Material;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * 启动时自动检索当前服务器核心注册的全部物品，并按名称规则归类。
- * 分类结果随服务器版本自动更新，无需手动维护物品列表。
+ * 显示与否由 数据库设置(分类开关/管理员物品) + 物品标记(黑/白名单) 共同决定。
  */
 public class CategoryManager {
 
@@ -67,36 +69,38 @@ public class CategoryManager {
             "_HELMET", "_CHESTPLATE", "_LEGGINGS", "_BOOTS", "_SWORD", "SHIELD", "BOW",
             "CROSSBOW", "ARROW", "TRIDENT", "TOTEM_OF_UNDYING", "HORSE_ARMOR", "WOLF_ARMOR", "SPEAR");
 
+    /** 管理员物品：生存无法获取/特殊物品，默认不允许显示，可在管理界面开启 */
+    private static final Set<String> ADMIN_ITEM_NAMES = new HashSet<>(Arrays.asList(
+            "BEDROCK", "BARRIER", "JIGSAW", "STRUCTURE_BLOCK", "STRUCTURE_VOID",
+            "COMMAND_BLOCK", "CHAIN_COMMAND_BLOCK", "REPEATING_COMMAND_BLOCK", "COMMAND_BLOCK_MINECART",
+            "LIGHT", "PISTON_HEAD", "MOVING_PISTON", "REINFORCED_DEEPSLATE", "DRAGON_EGG",
+            "SPAWNER", "TRIAL_SPAWNER", "VAULT", "SUSPICIOUS_SAND", "SUSPICIOUS_GRAVEL",
+            "PETRIFIED_OAK_SLAB", "DEBUG_STICK", "KNOWLEDGE_BOOK", "FARMLAND", "DIRT_PATH",
+            "FROSTED_ICE", "BUDDING_AMETHYST", "INFESTED_STONE", "INFESTED_COBBLESTONE",
+            "INFESTED_STONE_BRICKS", "INFESTED_MOSSY_STONE_BRICKS", "INFESTED_CRACKED_STONE_BRICKS",
+            "INFESTED_CHISELED_STONE_BRICKS", "INFESTED_DEEPSLATE", "END_PORTAL_FRAME",
+            "TEST_BLOCK", "TEST_INSTANCE_BLOCK", "SCULK_SHRIEKER", "FROGSPAWN"));
+
     private final ArchitectBlocks plugin;
     private final Map<Category, List<Material>> categorized = new EnumMap<>(Category.class);
-    private Set<Material> blacklist = new HashSet<>();
 
     public CategoryManager(ArchitectBlocks plugin) {
         this.plugin = plugin;
     }
 
-    /** 重新检索并分类全部物品，读取黑名单配置 */
+    /** 重新检索并分类全部物品 */
     public void reload() {
         categorized.clear();
         for (Category c : Category.values()) {
             categorized.put(c, new ArrayList<>());
         }
-        blacklist = new HashSet<>();
-        for (String name : plugin.getConfig().getStringList("blacklist")) {
-            try {
-                blacklist.add(Material.valueOf(name.toUpperCase(Locale.ROOT)));
-            } catch (IllegalArgumentException ignored) {
-                plugin.getLogger().warning("黑名单中的物品名无效: " + name);
-            }
-        }
         boolean overlap = plugin.getConfig().getBoolean("settings.overlap", true);
         for (Material mat : Material.values()) {
-            if (!mat.isItem() || mat.isAir() || blacklist.contains(mat)) {
+            if (!mat.isItem() || mat.isAir()) {
                 continue;
             }
             Category primary = classify(mat);
             categorized.get(primary).add(mat);
-            // 分类重叠：与原版创造栏一致，原木/菌柄同时出现在建筑方块和自然方块
             if (overlap && primary == Category.NATURAL && isWoodLike(mat.name())) {
                 categorized.get(Category.BUILDING).add(mat);
             }
@@ -107,7 +111,89 @@ public class CategoryManager {
         }
     }
 
-    /** 分类规则，顺序即优先级 */
+    // ---------- 分类设置（数据库） ----------
+
+    public boolean isEnabled(Category category) {
+        return "true".equalsIgnoreCase(plugin.getDb().getSetting("cat." + category.getConfigKey(), "true"));
+    }
+
+    public void setEnabled(Category category, boolean enabled) {
+        plugin.getDb().setSetting("cat." + category.getConfigKey(), String.valueOf(enabled));
+    }
+
+    public boolean isAllowAdminItems() {
+        return "true".equalsIgnoreCase(plugin.getDb().getSetting("allow_admin_items", "false"));
+    }
+
+    public void setAllowAdminItems(boolean allow) {
+        plugin.getDb().setSetting("allow_admin_items", String.valueOf(allow));
+    }
+
+    // ---------- 显示过滤 ----------
+
+    public boolean isAdminItem(Material mat) {
+        return ADMIN_ITEM_NAMES.contains(mat.name());
+    }
+
+    /** 单个物品是否可见：黑名单永远隐藏 > 白名单永远显示 > 分类开关 > 管理员物品开关 */
+    public boolean isVisible(Material mat, Category category) {
+        MaterialFlag flag = plugin.getDb().getFlag(mat);
+        if (flag == MaterialFlag.BLACK) {
+            return false;
+        }
+        if (flag == MaterialFlag.WHITE) {
+            return true;
+        }
+        if (!isEnabled(category)) {
+            return false;
+        }
+        return !isAdminItem(mat) || isAllowAdminItems();
+    }
+
+    /** 分类菜单实际显示的物品列表 */
+    public List<Material> getDisplayItems(Category category) {
+        List<Material> out = new ArrayList<>();
+        for (Material mat : categorized.getOrDefault(category, new ArrayList<>())) {
+            if (isVisible(mat, category)) {
+                out.add(mat);
+            }
+        }
+        return out;
+    }
+
+    /** 背包已有物品视图：列出玩家背包中可显示的物品种类 */
+    public List<Material> getInventoryItems(Player player) {
+        Set<Material> owned = new LinkedHashSet<>();
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && !item.getType().isAir()) {
+                owned.add(item.getType());
+            }
+        }
+        List<Material> out = new ArrayList<>();
+        for (Material mat : owned) {
+            Category cat = classify(mat);
+            if (isVisible(mat, cat)) {
+                out.add(mat);
+            }
+        }
+        out.sort(currentComparator());
+        return out;
+    }
+
+    /** 管理用：全部物品（不分类、不过滤），按字母排序 */
+    public List<Material> getAllItems() {
+        List<Material> out = new ArrayList<>();
+        for (Material mat : Material.values()) {
+            if (mat.isItem() && !mat.isAir()) {
+                out.add(mat);
+            }
+        }
+        out.sort(Comparator.comparing(Enum::name));
+        return out;
+    }
+
+    // ---------- 分类规则 ----------
+
     private Category classify(Material mat) {
         String n = mat.name();
         if (n.endsWith("_SPAWN_EGG")) {
@@ -117,7 +203,6 @@ public class CategoryManager {
             return Category.FOOD;
         }
         if (mat.isBlock()) {
-            // 精确匹配的散件
             if (n.equals("SAND") || n.equals("RED_SAND") || n.equals("MUD")
                     || n.equals("SNOW") || n.equals("POWDER_SNOW") || n.equals("SNOW_BLOCK")) {
                 return Category.NATURAL;
@@ -148,15 +233,13 @@ public class CategoryManager {
             }
             return Category.BUILDING;
         }
-        // 非方块物品：粗略分入剩余三类（默认关闭）
         if (containsAny(n, COMBAT_KEYWORDS)) {
             return Category.COMBAT;
         }
         if (mat.getMaxDurability() > 0 || n.endsWith("_BUCKET") || n.equals("SHEARS")
                 || n.equals("FLINT_AND_STEEL") || n.equals("FISHING_ROD") || n.equals("BRUSH")
                 || n.equals("SPYGLASS") || n.equals("COMPASS") || n.equals("CLOCK")
-                || n.equals("WRITABLE_BOOK") || n.equals("WRITTEN_BOOK") || n.equals("BOOK")
-                ) {
+                || n.equals("WRITABLE_BOOK") || n.equals("WRITTEN_BOOK") || n.equals("BOOK")) {
             return Category.TOOLS;
         }
         return Category.INGREDIENTS;
@@ -180,18 +263,18 @@ public class CategoryManager {
         return false;
     }
 
-    /**
-     * 按配置排序：type=按种类（家族聚簇，接近创造栏观感），alphabetical=按字母。
-     * 家族取名称最后一个单词，如 OAK_LOG/SPRUCE_LOG 的家族都是 LOG，木板/原木各自聚在一起。
-     */
-    private void sortAll() {
+    // ---------- 排序 ----------
+
+    private Comparator<Material> currentComparator() {
         String mode = plugin.getConfig().getString("settings.sort", "type");
-        Comparator<Material> cmp;
         if ("alphabetical".equalsIgnoreCase(mode)) {
-            cmp = Comparator.comparing(Enum::name);
-        } else {
-            cmp = Comparator.comparing(CategoryManager::family).reversed().thenComparing(Enum::name);
+            return Comparator.comparing(Enum::name);
         }
+        return Comparator.comparing(CategoryManager::family).reversed().thenComparing(Enum::name);
+    }
+
+    private void sortAll() {
+        Comparator<Material> cmp = currentComparator();
         for (List<Material> list : categorized.values()) {
             list.sort(cmp);
         }
@@ -206,14 +289,5 @@ public class CategoryManager {
         String n = mat.name();
         int idx = n.lastIndexOf('_');
         return idx < 0 ? n : n.substring(idx + 1);
-    }
-
-    public List<Material> getItems(Category category) {
-        return categorized.getOrDefault(category, new ArrayList<>());
-    }
-
-    public boolean isEnabled(Category category) {
-        return plugin.getConfig().getBoolean("categories." + category.getConfigKey(),
-                category.isDefaultEnabled());
     }
 }
