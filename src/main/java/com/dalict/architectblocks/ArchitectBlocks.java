@@ -245,13 +245,11 @@ public class ArchitectBlocks extends JavaPlugin {
         Inventory inv = Bukkit.createInventory(holder, 27, color(getMessage("title-admin-main")));
         holder.setInventory(inv);
 
-        inv.setItem(11, icon(material("blacklist-button", Material.BLACK_WOOL),
+        inv.setItem(12, icon(material("blacklist-button", Material.BLACK_WOOL),
                 color(getGuiConfigString("names.blacklist-list", "&8[ &c物品黑名单列表 &8]")),
-                color(getMessage("blacklist-list-lore"))));
-        inv.setItem(13, icon(material("whitelist-button", Material.WHITE_WOOL),
-                color(getGuiConfigString("names.whitelist-list", "&8[ &f物品白名单列表 &8]")),
+                color(getMessage("blacklist-list-lore")),
                 color(getMessage("whitelist-list-lore"))));
-        inv.setItem(15, icon(material("toggle-button", Material.COMPARATOR),
+        inv.setItem(14, icon(material("toggle-button", Material.COMPARATOR),
                 color(getGuiConfigString("names.cats", "&8[ &6分类与功能开关 &8]")),
                 color(getMessage("cats-lore"))));
 
@@ -301,22 +299,14 @@ public class ArchitectBlocks extends JavaPlugin {
     }
 
     /**
-     * 黑/白名单管理页。
-     * 默认只显示本名单的物品（黑名单页显示已拉黑的，白名单页显示已加白的）；
-     * 点击物品转移到对面名单（本页不再显示），Shift 点击清除标记。
-     * 开启"只显示背包已有"时显示背包中的全部物品（不限标记），作为添加新物品的入口。
+     * 黑名单管理页：只显示已拉黑的物品，点击列表中的物品即移出黑名单。
+     * 添加方式：保持本界面打开，直接点击自己背包中的物品即可加入黑名单。
      */
-    public void openAdminList(Player player, String mode, int page, boolean invFilter) {
-        List<Material> items;
-        if (invFilter) {
-            items = new ArrayList<>(categoryManager.getInventoryItems(player));
-        } else {
-            MaterialFlag want = "black".equals(mode) ? MaterialFlag.BLACK : MaterialFlag.WHITE;
-            items = new ArrayList<>();
-            for (Material mat : categoryManager.getAllItems()) {
-                if (db.getFlag(mat) == want) {
-                    items.add(mat);
-                }
+    public void openAdminList(Player player, int page) {
+        List<Material> items = new ArrayList<>();
+        for (Material mat : categoryManager.getAllItems()) {
+            if (db.getFlag(mat) == MaterialFlag.BLACK) {
+                items.add(mat);
             }
         }
         int size = 54;
@@ -325,31 +315,27 @@ public class ArchitectBlocks extends JavaPlugin {
         if (page < 0) page = 0;
         if (page >= maxPage) page = maxPage - 1;
 
-        String title = color(getMessage("black".equals(mode) ? "title-admin-list-black" : "title-admin-list-white")
+        String title = color(getMessage("title-admin-list-black")
                 .replace("%page%", String.valueOf(page + 1))
-                .replace("%max%", String.valueOf(maxPage))
-                .replace("%filter%", invFilter ? getMessage("filter-on") : getMessage("filter-off")));
-        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_LIST, null, page, mode, invFilter);
+                .replace("%max%", String.valueOf(maxPage)));
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_LIST, null, page);
         Inventory inv = Bukkit.createInventory(holder, size, title);
         holder.setInventory(inv);
 
-        if (items.isEmpty() && !invFilter) {
+        if (items.isEmpty()) {
             player.sendMessage(getMessage("list-empty"));
         }
         for (int i = 0; i < pageSize; i++) {
             int index = page * pageSize + i;
             if (index >= items.size()) break;
             Material mat = items.get(index);
-            MaterialFlag flag = db.getFlag(mat);
-            String state = flag == MaterialFlag.BLACK ? getMessage("state-black")
-                    : flag == MaterialFlag.WHITE ? getMessage("state-white") : getMessage("state-normal");
             List<String> lore = new ArrayList<>();
-            lore.add(state);
+            lore.add(getMessage("state-black"));
             if (categoryManager.isAdminItem(mat)) {
                 lore.add(getMessage("state-admin-item"));
             }
             lore.add("");
-            lore.add(color(getMessage("black".equals(mode) ? "list-click-black" : "list-click-white")));
+            lore.add(color(getMessage("list-click-remove")));
             inv.setItem(i, icon(mat, null, lore.toArray(new String[0])));
         }
 
@@ -363,10 +349,6 @@ public class ArchitectBlocks extends JavaPlugin {
                     color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
             reserved.add(size - 1);
         }
-        int filterSlot = bottomStart + 2;
-        inv.setItem(filterSlot, icon(material("filter-button", Material.HOPPER),
-                color(getMessage("filter-name")) + (invFilter ? getMessage("filter-on") : getMessage("filter-off"))));
-        reserved.add(filterSlot);
         int backSlot = bottomStart + 4;
         inv.setItem(backSlot, icon(material("back-button", Material.CLOCK),
                 color(getGuiConfigString("names.back-admin", "&8[ &a返回管理主页 &8]"))));

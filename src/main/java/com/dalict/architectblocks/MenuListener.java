@@ -48,7 +48,19 @@ public class MenuListener implements Listener {
             event.getView().close();
             return;
         }
-        // 只处理菜单内点击，玩家自身背包的点击仅取消
+        // 黑名单管理页：点击自己背包中的物品 = 加入黑名单
+        if (holder.getType() == MenuHolder.Type.ADMIN_LIST
+                && event.getClickedInventory() != null
+                && event.getClickedInventory() != top
+                && event.getCurrentItem() != null
+                && !event.getCurrentItem().getType().isAir()) {
+            Material toBlack = event.getCurrentItem().getType();
+            plugin.getDb().setFlag(toBlack, MaterialFlag.BLACK);
+            player.sendMessage(plugin.getMessage("flag-set-black").replace("%item%", toBlack.name()));
+            plugin.openAdminList(player, holder.getPage());
+            return;
+        }
+        // 其他菜单：玩家自身背包的点击仅取消
         if (event.getClickedInventory() != top) {
             return;
         }
@@ -77,7 +89,7 @@ public class MenuListener implements Listener {
                 handleAdminCats(player, slot, bottomStart);
                 break;
             case ADMIN_LIST:
-                handleAdminList(player, holder, slot, size, bottomStart, event.isShiftClick());
+                handleAdminList(player, holder, slot, size, bottomStart);
                 break;
         }
     }
@@ -181,11 +193,9 @@ public class MenuListener implements Listener {
             player.closeInventory();
             return;
         }
-        if (slot == 11) {
-            plugin.openAdminList(player, "black", 0, false);
-        } else if (slot == 13) {
-            plugin.openAdminList(player, "white", 0, false);
-        } else if (slot == 15) {
+        if (slot == 12) {
+            plugin.openAdminList(player, 0);
+        } else if (slot == 14) {
             plugin.openAdminCats(player);
         }
     }
@@ -223,33 +233,29 @@ public class MenuListener implements Listener {
         }
     }
 
-    private void handleAdminList(Player player, MenuHolder holder, int slot, int size, int bottomStart,
-                                 boolean shiftClick) {
-        String mode = holder.getListMode();
+    private void handleAdminList(Player player, MenuHolder holder, int slot, int size, int bottomStart) {
         int pageSize = size - 9;
         if (slot == bottomStart + 4) {
             plugin.openAdminMain(player);
             return;
         }
-        if (slot == bottomStart + 2) {
-            plugin.openAdminList(player, mode, 0, !holder.isInvFilter());
-            return;
-        }
-        List<Material> items = plugin.getCategoryManager().getAllItems();
-        if (holder.isInvFilter()) {
-            items = new ArrayList<>(items);
-            items.retainAll(plugin.getCategoryManager().getInventoryItems(player));
+        List<Material> items = new ArrayList<>();
+        for (Material mat : plugin.getCategoryManager().getAllItems()) {
+            if (plugin.getDb().getFlag(mat) == MaterialFlag.BLACK) {
+                items.add(mat);
+            }
         }
         int pageCount = Math.max(1, (items.size() + pageSize - 1) / pageSize);
         int page = holder.getPage();
         if (slot == bottomStart && pageCount > 1) {
-            plugin.openAdminList(player, mode, (page - 1 + pageCount) % pageCount, holder.isInvFilter());
+            plugin.openAdminList(player, (page - 1 + pageCount) % pageCount);
             return;
         }
         if (slot == size - 1 && pageCount > 1) {
-            plugin.openAdminList(player, mode, (page + 1) % pageCount, holder.isInvFilter());
+            plugin.openAdminList(player, (page + 1) % pageCount);
             return;
         }
+        // 点击列表中的物品 = 移出黑名单
         if (slot < 0 || slot >= pageSize) {
             return;
         }
@@ -258,16 +264,8 @@ public class MenuListener implements Listener {
             return;
         }
         Material mat = items.get(index);
-        if (shiftClick) {
-            plugin.getDb().setFlag(mat, null);
-            player.sendMessage(plugin.getMessage("flag-cleared").replace("%item%", mat.name()));
-        } else if ("black".equals(mode)) {
-            plugin.getDb().setFlag(mat, MaterialFlag.WHITE);
-            player.sendMessage(plugin.getMessage("flag-set-white").replace("%item%", mat.name()));
-        } else {
-            plugin.getDb().setFlag(mat, MaterialFlag.BLACK);
-            player.sendMessage(plugin.getMessage("flag-set-black").replace("%item%", mat.name()));
-        }
-        plugin.openAdminList(player, mode, page, holder.isInvFilter());
+        plugin.getDb().setFlag(mat, null);
+        player.sendMessage(plugin.getMessage("flag-cleared").replace("%item%", mat.name()));
+        plugin.openAdminList(player, page);
     }
 }
