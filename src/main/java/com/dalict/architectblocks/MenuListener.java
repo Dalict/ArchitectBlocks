@@ -83,12 +83,12 @@ public class MenuListener implements Listener {
         List<Material> items = plugin.getCategoryManager().getItems(category);
         int pageCount = Math.max(1, (items.size() + pageSize - 1) / pageSize);
         int page = holder.getPage();
-        if (slot == bottomStart && page > 0) {
-            plugin.openItemMenu(player, category, page - 1);
+        if (slot == bottomStart && pageCount > 1) {
+            plugin.openItemMenu(player, category, (page - 1 + pageCount) % pageCount);
             return;
         }
-        if (slot == size - 1 && page + 1 < pageCount) {
-            plugin.openItemMenu(player, category, page + 1);
+        if (slot == size - 1 && pageCount > 1) {
+            plugin.openItemMenu(player, category, (page + 1) % pageCount);
             return;
         }
         if (slot == bottomStart + 4) {

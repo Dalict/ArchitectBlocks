@@ -149,13 +149,12 @@ public class ArchitectBlocks extends JavaPlugin {
         int backSlot = bottomStart + 4;
         List<Integer> reserved = new ArrayList<>();
         reserved.add(backSlot);
-        if (page > 0) {
+        // 循环翻页：超过一页时两个箭头始终显示，末页点下一页回到首页，首页点上一页到末页
+        if (maxPage > 1) {
             int prevSlot = bottomStart;
             inv.setItem(prevSlot, icon(material("prev-button", Material.ARROW),
                     color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
             reserved.add(prevSlot);
-        }
-        if ((page + 1) * pageSize < items.size()) {
             int nextSlot = size - 1;
             inv.setItem(nextSlot, icon(material("next-button", Material.ARROW),
                     color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));

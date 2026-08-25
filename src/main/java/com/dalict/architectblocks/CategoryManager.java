@@ -190,7 +190,7 @@ public class CategoryManager {
         if ("alphabetical".equalsIgnoreCase(mode)) {
             cmp = Comparator.comparing(Enum::name);
         } else {
-            cmp = Comparator.comparing(CategoryManager::family).thenComparing(Enum::name);
+            cmp = Comparator.comparing(CategoryManager::family).reversed().thenComparing(Enum::name);
         }
         for (List<Material> list : categorized.values()) {
             list.sort(cmp);
