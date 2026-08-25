@@ -138,18 +138,19 @@ public class ArchitectBlocks extends JavaPlugin {
         }
 
         boolean isAdmin = player.hasPermission(PERM_ADMIN);
+        // 背包已有物品按钮：顶部中央
+        inv.setItem(4, icon(material("inv-button", Material.HOPPER),
+                color(getGuiConfigString("names.inv", "&8[ &e获取背包已有的物品 &8]")),
+                color(getMessage("inv-lore"))));
         int closeSlot = bottomStart + 4;
         inv.setItem(closeSlot, icon(material("close-button", Material.CLOCK),
                 color(getGuiConfigString("names.close", "&8[ &b关闭菜单 &8]"))));
-        int invSlot = bottomStart + 2;
-        inv.setItem(invSlot, icon(material("inv-button", Material.HOPPER),
-                color(getGuiConfigString("names.inv", "&8[ &e获取背包已有的物品 &8]")),
-                color(getMessage("inv-lore"))));
         if (isAdmin) {
             inv.setItem(bottomStart, icon(material("admin-button", Material.COMMAND_BLOCK),
                     color(getGuiConfigString("names.admin", "&8[ &c管理员设置 &8]"))));
         }
-        List<Integer> reserved = new ArrayList<>(Arrays.asList(closeSlot, invSlot));
+        List<Integer> reserved = new ArrayList<>();
+        reserved.add(closeSlot);
         if (isAdmin) {
             reserved.add(bottomStart);
         }
@@ -299,13 +300,24 @@ public class ArchitectBlocks extends JavaPlugin {
         player.openInventory(inv);
     }
 
-    /** 黑/白名单管理页：列出全部物品，点击切换到对面名单，Shift 点击清除标记 */
+    /**
+     * 黑/白名单管理页。
+     * 默认只显示本名单的物品（黑名单页显示已拉黑的，白名单页显示已加白的）；
+     * 点击物品转移到对面名单（本页不再显示），Shift 点击清除标记。
+     * 开启"只显示背包已有"时显示背包中的全部物品（不限标记），作为添加新物品的入口。
+     */
     public void openAdminList(Player player, String mode, int page, boolean invFilter) {
-        List<Material> items = categoryManager.getAllItems();
+        List<Material> items;
         if (invFilter) {
-            List<Material> owned = categoryManager.getInventoryItems(player);
-            items = new ArrayList<>(items);
-            items.retainAll(owned);
+            items = new ArrayList<>(categoryManager.getInventoryItems(player));
+        } else {
+            MaterialFlag want = "black".equals(mode) ? MaterialFlag.BLACK : MaterialFlag.WHITE;
+            items = new ArrayList<>();
+            for (Material mat : categoryManager.getAllItems()) {
+                if (db.getFlag(mat) == want) {
+                    items.add(mat);
+                }
+            }
         }
         int size = 54;
         int pageSize = size - 9;
@@ -321,6 +333,9 @@ public class ArchitectBlocks extends JavaPlugin {
         Inventory inv = Bukkit.createInventory(holder, size, title);
         holder.setInventory(inv);
 
+        if (items.isEmpty() && !invFilter) {
+            player.sendMessage(getMessage("list-empty"));
+        }
         for (int i = 0; i < pageSize; i++) {
             int index = page * pageSize + i;
             if (index >= items.size()) break;

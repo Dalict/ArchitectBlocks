@@ -89,7 +89,7 @@ public class MenuListener implements Listener {
             player.closeInventory();
             return;
         }
-        if (slot == bottomStart + 2) {
+        if (slot == 4) {
             plugin.openInventoryMenu(player, 0);
             return;
         }
