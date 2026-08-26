@@ -90,6 +90,12 @@ public class LangManager {
                 plugin.getLogger().warning("语言缓存文件损坏，将尝试重新获取: " + code + " - " + e.getMessage());
             }
         }
+        // 3) 数据库缓存（跨服共用 MySQL 时可共享）
+        Map<String, String> fromDb = plugin.getDb().loadLang(code);
+        if (!fromDb.isEmpty()) {
+            plugin.getLogger().info("已加载语言文件(数据库): " + code + " (" + fromDb.size() + " 条)");
+            return fromDb;
+        }
         plugin.getLogger().warning("语言文件不可用（未下载成功且服务器 jar 未附带），该语言搜索将被跳过: " + code);
         return Collections.emptyMap();
     }
@@ -247,6 +253,14 @@ public class LangManager {
             }
             Files.write(dir.resolve(code + ".json"), data);
             plugin.getLogger().info("已下载官方语言文件: " + code + ".json (" + data.length / 1024 + " KB)");
+            // 写入数据库缓存
+            try {
+                Map<String, String> parsed = gson.fromJson(
+                        new String(data, StandardCharsets.UTF_8),
+                        new TypeToken<Map<String, String>>() { }.getType());
+                plugin.getDb().saveLang(code, parsed);
+            } catch (Exception ignored) {
+            }
             any = true;
         }
         if (!any) {

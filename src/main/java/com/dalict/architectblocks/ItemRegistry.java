@@ -31,6 +31,8 @@ public class ItemRegistry {
 
     private final ArchitectBlocks plugin;
     private final List<Material> all = new ArrayList<>();
+    /** 搜索语言缓存（reload 时从配置读一次，避免物品循环内反复解析 YAML） */
+    private final List<String> searchLangs = new ArrayList<>();
 
     public ItemRegistry(ArchitectBlocks plugin) {
         this.plugin = plugin;
@@ -39,6 +41,13 @@ public class ItemRegistry {
     /** 重新检索全部物品 */
     public void reload() {
         all.clear();
+        searchLangs.clear();
+        for (String code : plugin.getConfig().getStringList("search.languages")) {
+            String normalized = code == null ? "" : code.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+            if (!normalized.isEmpty() && !"en_us".equals(normalized) && !searchLangs.contains(normalized)) {
+                searchLangs.add(normalized);
+            }
+        }
         for (Material mat : Material.values()) {
             if (mat.isItem() && !mat.isAir()) {
                 all.add(mat);
@@ -138,10 +147,8 @@ public class ItemRegistry {
         if (langContains("en_us", key, q)) {
             return true;
         }
-        for (String code : plugin.getConfig().getStringList("search.languages")) {
-            String normalized = code == null ? "" : code.trim().toLowerCase(Locale.ROOT).replace('-', '_');
-            if (!normalized.isEmpty() && !"en_us".equals(normalized)
-                    && langContains(normalized, key, q)) {
+        for (String code : searchLangs) {
+            if (langContains(code, key, q)) {
                 return true;
             }
         }

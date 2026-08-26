@@ -65,6 +65,13 @@ public class ChatInputManager implements Listener {
             return;
         }
         String keyword = text.length() > 64 ? text.substring(0, 64) : text;
-        Bukkit.getScheduler().runTask(plugin, () -> plugin.openSearchMenu(player, 0, keyword));
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (plugin.getItemRegistry().search(keyword).isEmpty()) {
+                player.sendMessage(plugin.getMessage("search-no-result").replace("%keyword%", keyword));
+                plugin.openMenu(player); // 回到刚刚的页面
+            } else {
+                plugin.openSearchMenu(player, 0, keyword);
+            }
+        });
     }
 }

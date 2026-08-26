@@ -135,16 +135,21 @@ public class MenuListener implements Listener {
             return;
         }
         if (slot == 45) {
-            // 漏斗：主页 -> 背包视图 / 背包视图 -> 主页（保持各自记忆页码）
-            String[] state = plugin.getDb().loadState(player.getUniqueId());
-            int remembered = 0;
-            if (state != null) {
-                try {
-                    remembered = "inv".equals(state[0]) == holder.isInvOnly() ? page : Integer.parseInt(state[2]);
-                } catch (NumberFormatException ignored) {
+            if (holder.isInvOnly()) {
+                // 返回主页：恢复主页记忆页码
+                String[] state = plugin.getDb().loadState(player.getUniqueId());
+                int remembered = 0;
+                if (state != null) {
+                    try {
+                        remembered = Integer.parseInt(state[2]);
+                    } catch (NumberFormatException ignored) {
+                    }
                 }
+                plugin.openMainMenu(player, remembered, false);
+            } else {
+                // 背包视图不记忆，每次从第一页开始
+                plugin.openMainMenu(player, 0, true);
             }
-            plugin.openMainMenu(player, Math.max(0, remembered), !holder.isInvOnly());
             return;
         }
         if (slot == 8) {
@@ -341,10 +346,6 @@ public class MenuListener implements Listener {
         }
         if (slot == 50 && pageCount > 1) {
             plugin.openAdminList(player, (page + 1) % pageCount);
-            return;
-        }
-        if (slot == 53) {
-            plugin.openTrash(player);
             return;
         }
         int offset = slot - ArchitectBlocks.ITEM_SLOT_START;

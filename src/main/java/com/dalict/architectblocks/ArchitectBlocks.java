@@ -10,8 +10,11 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -32,15 +35,21 @@ public class ArchitectBlocks extends JavaPlugin {
     public static final int ITEM_SLOT_START = 9;
     public static final int PAGE_SIZE = 36;
 
+    /** 当前默认配置的版本号，用于配置文件升级 */
+    private static final int CONFIG_VERSION = 2;
+
     private ItemRegistry itemRegistry;
     private LangManager lang;
     private ChatInputManager chatInput;
     private Database db;
+    private FileConfiguration playersConfig;
     private final Map<UUID, Long> giveCooldown = new HashMap<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        upgradeConfig();
+        loadPlayersFile();
         db = new Database(this);
         db.init();
         lang = new LangManager(this);
@@ -126,7 +135,7 @@ public class ArchitectBlocks extends JavaPlugin {
             return true;
         }
         if (getConfig().getBoolean("access.use-player-list", true)
-                && getConfig().getStringList("access.players").stream()
+                && playersConfig.getStringList("players").stream()
                 .anyMatch(name -> name.equalsIgnoreCase(player.getName()))) {
             return true;
         }
@@ -140,7 +149,7 @@ public class ArchitectBlocks extends JavaPlugin {
             return true;
         }
         String target = args[1].trim();
-        List<String> players = new ArrayList<>(getConfig().getStringList("access.players"));
+        List<String> players = new ArrayList<>(playersConfig.getStringList("players"));
         boolean exists = players.stream().anyMatch(n -> n.equalsIgnoreCase(target));
         if (add) {
             if (exists) {
@@ -148,20 +157,52 @@ public class ArchitectBlocks extends JavaPlugin {
                 return true;
             }
             players.add(target);
-            getConfig().set("access.players", players);
-            saveConfig();
-            sender.sendMessage(getMessage("access-added").replace("%player%", target));
         } else {
             if (!exists) {
                 sender.sendMessage(getMessage("access-not-in-list").replace("%player%", target));
                 return true;
             }
             players.removeIf(n -> n.equalsIgnoreCase(target));
-            getConfig().set("access.players", players);
-            saveConfig();
-            sender.sendMessage(getMessage("access-removed").replace("%player%", target));
         }
+        playersConfig.set("players", players);
+        try {
+            playersConfig.save(new File(getDataFolder(), "players.yml"));
+        } catch (java.io.IOException e) {
+            sender.sendMessage(color("&c保存 players.yml 失败: " + e.getMessage()));
+        }
+        sender.sendMessage(getMessage("access-" + (add ? "added" : "removed")).replace("%player%", target));
         return true;
+    }
+
+    /** 独立的玩家名单文件，避免写回主配置时丢失注释 */
+    private void loadPlayersFile() {
+        File file = new File(getDataFolder(), "players.yml");
+        playersConfig = YamlConfiguration.loadConfiguration(file);
+        playersConfig.options().header("可使用 ArchitectBlocks 的玩家名单\n可用 /mats add|remove <玩家名> 管理");
+        if (!file.exists()) {
+            playersConfig.set("players", new ArrayList<String>());
+            try {
+                playersConfig.save(file);
+            } catch (java.io.IOException e) {
+                getLogger().warning("无法保存 players.yml: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 配置文件升级：config-version 低于当前版本时，把内置默认配置中缺失的键
+     * 补充到用户配置（用户已有设置全部保留），然后写回并重载。
+     */
+    private void upgradeConfig() {
+        int version = getConfig().getInt("config-version", 1);
+        if (version >= CONFIG_VERSION) {
+            return;
+        }
+        getConfig().options().copyDefaults(true);
+        saveConfig();
+        reloadConfig();
+        getLogger().info("配置文件已从 v" + version + " 升级到 v" + CONFIG_VERSION
+                + "，缺失的默认项已补充，原有设置保留");
     }
 
     private void sendColored(CommandSender sender, String msg) {
@@ -211,7 +252,10 @@ public class ArchitectBlocks extends JavaPlugin {
         MenuHolder holder = new MenuHolder(MenuHolder.Type.MAIN, page, null, invOnly);
         Inventory inv = Bukkit.createInventory(holder, 54, title);
         holder.setInventory(inv);
-        db.saveState(player.getUniqueId(), invOnly ? "inv" : "main", null, page);
+        if (!invOnly) {
+            // 背包视图不写入记忆状态，退出后回到之前的界面
+            db.saveState(player.getUniqueId(), "main", null, page);
+        }
 
         fillItems(inv, items, page);
         buildCommonFrame(player, inv, pageCount, invOnly);
@@ -330,12 +374,12 @@ public class ArchitectBlocks extends JavaPlugin {
         Inventory inv = Bukkit.createInventory(holder, 27, color(getMessage("title-admin")));
         holder.setInventory(inv);
 
-        inv.setItem(11, icon(material("eggs-toggle", Material.SPAWNER),
+        inv.setItem(11, icon(material("eggs-toggle", Material.CREEPER_SPAWN_EGG),
                 color(getGuiConfigString("names.eggs-toggle", "&8[ &d允许刷怪蛋 &8]")),
                 stateLine(itemRegistry.isAllowSpawnEggs()),
                 color(getMessage("eggs-toggle-lore")),
                 color(getMessage("click-toggle"))));
-        inv.setItem(13, icon(material("admin-items-toggle", Material.BEDROCK),
+        inv.setItem(13, icon(material("admin-items-toggle", Material.COMMAND_BLOCK),
                 color(getGuiConfigString("names.admin-items-toggle", "&8[ &4允许管理员物品 &8]")),
                 stateLine(itemRegistry.isAllowAdminItems()),
                 color(getMessage("admin-items-lore")),
@@ -387,11 +431,8 @@ public class ArchitectBlocks extends JavaPlugin {
             inv.setItem(50, icon(material("next-button", Material.ARROW),
                     color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
         }
-        inv.setItem(53, icon(material("trash-button", Material.LAVA_BUCKET),
-                color(getGuiConfigString("names.trash", "&8[ &6垃圾桶 &8]")),
-                color(getMessage("trash-lore"))));
         fillPanes(inv, 0, 8, 0, 8);
-        fillPanes(inv, 45, 53, 48, 50, 53);
+        fillPanes(inv, 45, 53, 48, 50);
         player.openInventory(inv);
     }
 

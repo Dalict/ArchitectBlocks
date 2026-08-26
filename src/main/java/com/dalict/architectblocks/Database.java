@@ -83,11 +83,15 @@ public class Database {
         String stateTable = "CREATE TABLE IF NOT EXISTS ab_player_state ("
                 + "uuid VARCHAR(40) PRIMARY KEY, view VARCHAR(16) NOT NULL,"
                 + " keyword VARCHAR(64), page INT NOT NULL)";
+        String langTable = "CREATE TABLE IF NOT EXISTS ab_lang ("
+                + "code VARCHAR(8) NOT NULL, k VARCHAR(180) NOT NULL, v VARCHAR(255) NOT NULL,"
+                + " PRIMARY KEY(code, k))";
         try (Statement st = conn.createStatement()) {
             st.execute(settingsTable);
             st.execute(flagsTable);
             st.execute(pagesTable);
             st.execute(stateTable);
+            st.execute(langTable);
         }
     }
 
@@ -213,6 +217,65 @@ public class Database {
                         plugin.getLogger().warning("界面状态写入失败: " + e.getMessage());
                     }
                 });
+    }
+
+    /** 从数据库读取语言缓存表 */
+    public Map<String, String> loadLang(String code) {
+        Map<String, String> out = new HashMap<>();
+        if (conn == null) {
+            return out;
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT k, v FROM ab_lang WHERE code = ?")) {
+            ps.setString(1, code);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.put(rs.getString(1), rs.getString(2));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("语言缓存读取失败: " + e.getMessage());
+        }
+        return out;
+    }
+
+    /** 语言表写入数据库（异步；先清后批量插入）。跨服共用 MySQL 时可共享语言缓存。 */
+    public void saveLang(String code, Map<String, String> map) {
+        if (conn == null || map == null || map.isEmpty()) {
+            return;
+        }
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            synchronized (this) {
+                if (conn == null) {
+                    return;
+                }
+                try (PreparedStatement del = conn.prepareStatement("DELETE FROM ab_lang WHERE code = ?")) {
+                    del.setString(1, code);
+                    del.executeUpdate();
+                } catch (SQLException e) {
+                    plugin.getLogger().warning("语言缓存清理失败: " + e.getMessage());
+                    return;
+                }
+                String insert = mysql
+                        ? "INSERT IGNORE INTO ab_lang(code, k, v) VALUES(?, ?, ?)"
+                        : "INSERT OR IGNORE INTO ab_lang(code, k, v) VALUES(?, ?, ?)";
+                try (PreparedStatement ins = conn.prepareStatement(insert)) {
+                    int batch = 0;
+                    for (Map.Entry<String, String> e : map.entrySet()) {
+                        ins.setString(1, code);
+                        ins.setString(2, e.getKey());
+                        ins.setString(3, e.getValue());
+                        ins.addBatch();
+                        if (++batch % 500 == 0) {
+                            ins.executeBatch();
+                        }
+                    }
+                    ins.executeBatch();
+                } catch (SQLException e) {
+                    plugin.getLogger().warning("语言缓存写入失败: " + e.getMessage());
+                }
+            }
+        });
     }
 
     private interface SqlTask {

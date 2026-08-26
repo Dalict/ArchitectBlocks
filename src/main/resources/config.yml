@@ -3,14 +3,16 @@
 # 物品列表随服务器版本自动更新
 # 开关(刷怪蛋/管理员物品)、物品黑名单、玩家界面状态存储在数据库中，游戏内 /mats admin 实时管理
 
+# 配置版本号（插件自动升级配置时使用，请勿手动修改）
+config-version: 2
+
 # 访问控制：默认 指定玩家名单 或 拥有 architectblocks.use/admin 权限 的玩家可用
+# 玩家名单存放在独立的 players.yml，用 /mats add|remove <玩家名> 管理
 access:
   # 全局允许所有人使用（开启后无视名单与权限）
   allow-everyone: false
-  # 启用下方玩家名单（关闭后名单失效，仅剩权限节点判定）
+  # 启用玩家名单（关闭后名单失效，仅剩权限节点判定）
   use-player-list: true
-  # 可使用插件的玩家名单，也可用 /mats add|remove <玩家名> 管理（保存到本配置）
-  players: []
 
 settings:
   # 每次点击获取的物品数量 (1-64)
@@ -58,8 +60,8 @@ gui:
     admin-button: COMMAND_BLOCK
     prev-button: ARROW
     next-button: ARROW
-    eggs-toggle: SPAWNER
-    admin-items-toggle: BEDROCK
+    eggs-toggle: CREEPER_SPAWN_EGG
+    admin-items-toggle: COMMAND_BLOCK
     blacklist-button: BLACK_WOOL
     trash-button: LAVA_BUCKET
   names:
