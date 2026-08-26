@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.bukkit.Bukkit;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -28,7 +27,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.util.jar.JarInputStream;
 
 /**
  * 语言文件管理，三级来源：
@@ -39,8 +37,6 @@ import java.util.jar.JarInputStream;
  */
 public class LangManager {
 
-    private static final String MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-    private static final String BMCLAPI = "https://bmclapi2.bangbang93.com";
 
     private final ArchitectBlocks plugin;
     private final Map<String, Map<String, String>> cache = new ConcurrentHashMap<>();
@@ -193,88 +189,93 @@ public class LangManager {
         plugin.getLogger().warning("所有下载源均失败，将使用已有语言文件继续运行。");
     }
 
-    /** 下载客户端 jar 并流式抽取目标语言条目（不保存整个 jar） */
+    /**
+     * 按资源索引下载语言文件（借鉴 SweetPlayerMarket 的方案）：
+     * 版本清单 -> 版本 JSON -> assetIndex -> objects["minecraft/lang/<code>.json"].hash
+     * -> 单文件下载（每个语言文件约数百 KB，无需下载整个客户端 jar）
+     */
     private void downloadAll(List<String> langs, String mc, Path dir, String mirror) throws Exception {
         HttpClient client = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
-        // 1) 版本清单 -> 版本详情地址
-        Map<String, Object> manifestMap = gson.fromJson(httpGet(client, rewrite(MANIFEST_URL, mirror)),
+        String bmclapi = "https://bmclapi2.bangbang93.com";
+        boolean isBmclapi = "bmclapi".equals(mirror);
+        // 1) 版本清单
+        String manifestUrl = isBmclapi
+                ? bmclapi + "/mc/game/version_manifest.json"
+                : "https://piston-meta.mojang.com/mc/game/version_manifest.json";
+        Map<String, Object> manifest = gson.fromJson(httpGet(client, manifestUrl),
                 new TypeToken<Map<String, Object>>() { }.getType());
-        String versionUrl = null;
-        Object versionsObj = manifestMap == null ? null : manifestMap.get("versions");
+        // 2) 版本 JSON（BMCLAPI 有专用直连端点）
+        String versionJsonUrl = null;
+        Object versionsObj = manifest.get("versions");
         if (versionsObj instanceof List<?> versions) {
             for (Object o : versions) {
                 if (o instanceof Map<?, ?> v && mc.equals(String.valueOf(v.get("id")))) {
-                    versionUrl = String.valueOf(v.get("url"));
+                    versionJsonUrl = isBmclapi
+                            ? bmclapi + "/version/" + mc + "/json"
+                            : String.valueOf(v.get("url"));
                     break;
                 }
             }
         }
-        if (versionUrl == null) {
+        if (versionJsonUrl == null) {
             throw new IllegalStateException("版本清单中找不到 " + mc);
         }
-        // 2) 版本详情 -> 客户端 jar 地址与 sha1
-        Map<String, Object> version = gson.fromJson(httpGet(client, rewrite(versionUrl, mirror)),
+        Map<String, Object> version = gson.fromJson(httpGet(client, versionJsonUrl),
                 new TypeToken<Map<String, Object>>() { }.getType());
-        Map<?, ?> downloads = (Map<?, ?>) version.get("downloads");
-        Map<?, ?> clientJar = (Map<?, ?>) downloads.get("client");
-        String jarUrl = String.valueOf(clientJar.get("url"));
-        String expectedSha1 = String.valueOf(clientJar.get("sha1"));
-
-        // 3) 流式下载 jar，抽取全部目标语言文件
-        Map<String, byte[]> extracted = new HashMap<>();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(rewrite(jarUrl, mirror)))
-                .timeout(Duration.ofMinutes(5))
-                .GET()
-                .build();
-        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException("客户端 jar 下载失败 HTTP " + response.statusCode());
+        // 3) 资源索引地址（BMCLAPI 取路径改写）
+        Map<?, ?> assetIndex = (Map<?, ?>) version.get("assetIndex");
+        String assetIndexUrl = String.valueOf(assetIndex.get("url"));
+        if (isBmclapi) {
+            String path = URI.create(assetIndexUrl).getPath();
+            assetIndexUrl = bmclapi + path;
         }
-        MessageDigest digest = MessageDigest.getInstance("SHA-1");
-        try (JarInputStream jarIn = new JarInputStream(response.body())) {
-            JarEntry entry;
-            byte[] buffer = new byte[8192];
-            while ((entry = jarIn.getNextJarEntry()) != null) {
-                boolean isWanted = false;
-                for (String code : langs) {
-                    if (("assets/minecraft/lang/" + code + ".json").equals(entry.getName())) {
-                        isWanted = true;
-                        break;
-                    }
-                }
-                ByteArrayOutputStream out = isWanted ? new ByteArrayOutputStream() : null;
-                int n;
-                while ((n = jarIn.read(buffer)) > 0) {
-                    digest.update(buffer, 0, n);
-                    if (out != null) {
-                        out.write(buffer, 0, n);
-                    }
-                }
-                if (out != null && out.size() > 0) {
-                    extracted.put(entry.getName(), out.toByteArray());
-                }
-            }
+        Map<String, Object> index = gson.fromJson(httpGet(client, assetIndexUrl),
+                new TypeToken<Map<String, Object>>() { }.getType());
+        Map<?, ?> objects = (Map<?, ?>) index.get("objects");
+        if (objects == null) {
+            throw new IllegalStateException("资源索引格式异常");
         }
-        String actualSha1 = hex(digest.digest());
-        if (expectedSha1 != null && !expectedSha1.isEmpty()
-                && !"null".equals(expectedSha1) && !actualSha1.equalsIgnoreCase(expectedSha1)) {
-            throw new IllegalStateException("客户端 jar 校验不一致 sha1=" + actualSha1);
-        }
+        // 4) 逐个语言文件按哈希下载
+        boolean any = false;
         for (String code : langs) {
-            byte[] data = extracted.get("assets/minecraft/lang/" + code + ".json");
-            if (data == null) {
-                plugin.getLogger().warning("官方客户端中不存在语言: " + code);
+            Map<?, ?> entry = (Map<?, ?>) objects.get("minecraft/lang/" + code + ".json");
+            if (entry == null) {
+                plugin.getLogger().warning("官方资源索引中不存在语言: " + code);
                 continue;
+            }
+            String hash = String.valueOf(entry.get("hash"));
+            String assetUrl = isBmclapi
+                    ? bmclapi + "/assets/" + hash.substring(0, 2) + "/" + hash
+                    : "https://resources.download.minecraft.net/" + hash.substring(0, 2) + "/" + hash;
+            byte[] data = httpGetBytes(client, assetUrl);
+            // SHA1 校验
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            String actual = hex(digest.digest(data));
+            if (!actual.equalsIgnoreCase(hash)) {
+                throw new IllegalStateException(code + " 下载校验失败 sha1=" + actual);
             }
             Files.write(dir.resolve(code + ".json"), data);
             plugin.getLogger().info("已下载官方语言文件: " + code + ".json (" + data.length / 1024 + " KB)");
+            any = true;
         }
-        if (extracted.isEmpty()) {
-            throw new IllegalStateException("未从客户端 jar 中抽取到任何语言文件");
+        if (!any) {
+            throw new IllegalStateException("未下载到任何语言文件");
         }
+    }
+
+    private byte[] httpGetBytes(HttpClient client, String url) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofMinutes(2))
+                .GET()
+                .build();
+        HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("HTTP " + response.statusCode() + " " + url);
+        }
+        return response.body();
     }
 
     private String httpGet(HttpClient client, String url) throws Exception {
@@ -287,16 +288,6 @@ public class LangManager {
             throw new IllegalStateException("HTTP " + response.statusCode() + " " + url);
         }
         return response.body();
-    }
-
-    /** BMCLAPI 镜像：把官方域替换为镜像域 */
-    private String rewrite(String url, String mirror) {
-        if (!"bmclapi".equals(mirror)) {
-            return url;
-        }
-        return url.replace("https://piston-meta.mojang.com", BMCLAPI)
-                .replace("https://piston-data.mojang.com", BMCLAPI)
-                .replace("https://launchermeta.mojang.com", BMCLAPI);
     }
 
     private static String hex(byte[] bytes) {
