@@ -3,6 +3,7 @@ version: b1.9.0
 main: com.dalict.architectblocks.ArchitectBlocks
 api-version: '1.21'
 author: Dalict
+website: https://github.com/Dalict/ArchitectBlocks
 description: 自动检索服务器全部物品并按创造物品栏分类的材料菜单
 
 commands:

@@ -13,6 +13,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,11 +50,19 @@ public class ArchitectBlocks extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new MenuListener(this), this);
         Bukkit.getPluginManager().registerEvents(chatInput, this);
         getCommand("mats").setExecutor(this);
+        getCommand("mats").setTabCompleter(this);
         getLogger().info("ArchitectBlocks 已启用，作者 Dalict");
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length > 0 && (args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
+            if (!sender.hasPermission(PERM_ADMIN)) {
+                sender.sendMessage(getMessage("no-permission"));
+                return true;
+            }
+            return mutatePlayerList(args, sender, args[0].equalsIgnoreCase("add"));
+        }
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission(PERM_ADMIN)) {
                 sender.sendMessage(getMessage("no-permission"));
@@ -103,9 +112,54 @@ public class ArchitectBlocks extends JavaPlugin {
         return true;
     }
 
-    /** 管理员无需额外授予 use 权限即可使用菜单 */
+    /**
+     * 使用权限判定（按优先级）：
+     * 管理员权限 > 全局允许所有人 > 玩家名单 > architectblocks.use 权限节点
+     */
     public boolean canUse(Player player) {
-        return player.hasPermission(PERM_USE) || player.hasPermission(PERM_ADMIN);
+        if (player.hasPermission(PERM_ADMIN)) {
+            return true;
+        }
+        if (getConfig().getBoolean("access.allow-everyone", false)) {
+            return true;
+        }
+        if (getConfig().getBoolean("access.use-player-list", true)
+                && getConfig().getStringList("access.players").stream()
+                .anyMatch(name -> name.equalsIgnoreCase(player.getName()))) {
+            return true;
+        }
+        return player.hasPermission(PERM_USE);
+    }
+
+    /** 名单增删并保存到 config.yml */
+    private boolean mutatePlayerList(String[] args, CommandSender sender, boolean add) {
+        if (args.length != 2) {
+            sender.sendMessage(color("&c用法: /mats " + (add ? "add" : "remove") + " <玩家名>"));
+            return true;
+        }
+        String target = args[1].trim();
+        List<String> players = new ArrayList<>(getConfig().getStringList("access.players"));
+        boolean exists = players.stream().anyMatch(n -> n.equalsIgnoreCase(target));
+        if (add) {
+            if (exists) {
+                sender.sendMessage(getMessage("access-duplicate").replace("%player%", target));
+                return true;
+            }
+            players.add(target);
+            getConfig().set("access.players", players);
+            saveConfig();
+            sender.sendMessage(getMessage("access-added").replace("%player%", target));
+        } else {
+            if (!exists) {
+                sender.sendMessage(getMessage("access-not-in-list").replace("%player%", target));
+                return true;
+            }
+            players.removeIf(n -> n.equalsIgnoreCase(target));
+            getConfig().set("access.players", players);
+            saveConfig();
+            sender.sendMessage(getMessage("access-removed").replace("%player%", target));
+        }
+        return true;
     }
 
     private void sendColored(CommandSender sender, String msg) {
@@ -512,6 +566,30 @@ public class ArchitectBlocks extends JavaPlugin {
             arr[i] = list.get(i);
         }
         return arr;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        List<String> result = new ArrayList<>();
+        if (args.length == 1) {
+            List<String> subs = new ArrayList<>(Arrays.asList("reload", "trash"));
+            if (sender.hasPermission(PERM_ADMIN)) {
+                subs.addAll(Arrays.asList("admin", "add", "remove"));
+            }
+            for (String sub : subs) {
+                if (sub.startsWith(args[0].toLowerCase())) {
+                    result.add(sub);
+                }
+            }
+        } else if (args.length == 2 && sender.hasPermission(PERM_ADMIN)
+                && (args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
+            for (Player online : Bukkit.getOnlinePlayers()) {
+                if (online.getName().toLowerCase().startsWith(args[1].toLowerCase())) {
+                    result.add(online.getName());
+                }
+            }
+        }
+        return result;
     }
 
     Material material(String key, Material def) {

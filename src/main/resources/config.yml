@@ -3,6 +3,15 @@
 # 物品列表随服务器版本自动更新
 # 开关(刷怪蛋/管理员物品)、物品黑名单、玩家界面状态存储在数据库中，游戏内 /mats admin 实时管理
 
+# 访问控制：默认 指定玩家名单 或 拥有 architectblocks.use/admin 权限 的玩家可用
+access:
+  # 全局允许所有人使用（开启后无视名单与权限）
+  allow-everyone: false
+  # 启用下方玩家名单（关闭后名单失效，仅剩权限节点判定）
+  use-player-list: true
+  # 可使用插件的玩家名单，也可用 /mats add|remove <玩家名> 管理（保存到本配置）
+  players: []
+
 settings:
   # 每次点击获取的物品数量 (1-64)
   click-amount: 64
@@ -101,5 +110,10 @@ messages:
   flag-set-black: '&c%item% 已加入黑名单'
   flag-cleared: '&7%item% 已清除标记'
   trash-lore: '&7放入物品后关闭界面即销毁'
+  access-added: '&a已将 &f%player% &a加入可用玩家名单。'
+  access-removed: '&a已将 &f%player% &a移出可用玩家名单。'
+  access-duplicate: '&e%player% 已在名单中。'
+  access-not-in-list: '&e%player% 不在名单中。'
+
   no-permission: '&c你没有权限使用该菜单！'
   reloaded: '&aArchitectBlocks 配置已重载！'
