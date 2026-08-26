@@ -29,10 +29,10 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
- * 语言文件管理，三级来源：
+ * 语言文件管理，两级来源：
  * 1. 服务器 jar 自带（版本严格一致，部分核心不打包）
- * 2. 插件数据目录 lang/&lt;code&gt;.json（启动时按配置自动从官方源下载）
- * 3. 插件内置 lang/&lt;code&gt;.json 兜底
+ * 2. 插件数据目录 lang/&lt;code&gt;.json（启动时按配置自动从官方源下载，en_us 始终下载）
+ * 不打包进插件，避免 MC 版本更新后语言文件过时。
  * 懒加载 + 缓存。
  */
 public class LangManager {
@@ -90,22 +90,7 @@ public class LangManager {
                 plugin.getLogger().warning("语言缓存文件损坏，将尝试重新获取: " + code + " - " + e.getMessage());
             }
         }
-        // 3) 插件内置兜底
-        try (InputStream in = LangManager.class.getResourceAsStream("/lang/" + code + ".json")) {
-            if (in != null) {
-                try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-                    Map<String, String> map = gson.fromJson(reader,
-                            new TypeToken<Map<String, String>>() { }.getType());
-                    if (map != null && !map.isEmpty()) {
-                        plugin.getLogger().info("已加载语言文件(插件内置): " + code + " (" + map.size() + " 条)");
-                        return map;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            plugin.getLogger().warning("加载语言文件失败: " + code + " - " + e.getMessage());
-        }
-        plugin.getLogger().warning("语言文件不可用，该语言搜索将被跳过: " + code);
+        plugin.getLogger().warning("语言文件不可用（未下载成功且服务器 jar 未附带），该语言搜索将被跳过: " + code);
         return Collections.emptyMap();
     }
 
@@ -134,6 +119,9 @@ public class LangManager {
         }
         if (langs.isEmpty()) {
             langs.add("zh_cn");
+        }
+        if (!langs.contains("en_us")) {
+            langs.add("en_us"); // 英文名搜索依赖，始终下载
         }
         Path dir = plugin.getDataFolder().toPath().resolve("lang");
         String mc = detectMcVersion();
