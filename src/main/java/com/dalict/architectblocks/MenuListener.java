@@ -174,7 +174,7 @@ public class MenuListener implements Listener {
 
     private void handleSearch(Player player, MenuHolder holder, int slot) {
         String keyword = holder.getKeyword();
-        List<Material> items = plugin.getItemRegistry().search(keyword, player.locale().toString());
+        List<Material> items = plugin.getItemRegistry().search(keyword);
         int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         int page = holder.getPage();
         if (slot == 0) {
@@ -260,7 +260,7 @@ public class MenuListener implements Listener {
         if ("inv".equals(view)) {
             items = plugin.getItemRegistry().getInventoryVisible(player);
         } else if ("search".equals(view)) {
-            items = plugin.getItemRegistry().search(keyword == null ? "" : keyword, player.locale().toString());
+            items = plugin.getItemRegistry().search(keyword == null ? "" : keyword);
         } else {
             items = plugin.getItemRegistry().getVisible();
         }

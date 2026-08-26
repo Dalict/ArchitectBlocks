@@ -221,7 +221,7 @@ public class ArchitectBlocks extends JavaPlugin {
     // ==================== 搜索结果 ====================
 
     public void openSearchMenu(Player player, int page, String keyword) {
-        List<Material> items = itemRegistry.search(keyword, player.locale().toString());
+        List<Material> items = itemRegistry.search(keyword);
         int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         if (page < 0) page = 0;
         if (page >= pageCount) page = pageCount - 1;
@@ -301,7 +301,7 @@ public class ArchitectBlocks extends JavaPlugin {
         if ("inv".equals(view)) {
             items = itemRegistry.getInventoryVisible(player);
         } else if ("search".equals(view)) {
-            items = itemRegistry.search(keyword == null ? "" : keyword, player.locale().toString());
+            items = itemRegistry.search(keyword == null ? "" : keyword);
         } else {
             items = itemRegistry.getVisible();
         }
@@ -514,10 +514,6 @@ public class ArchitectBlocks extends JavaPlugin {
             langs.append(color(getMessage("search-lore-none")));
         }
         lines.add(getMessage("search-lore-line2").replace("%languages%", langs.toString()));
-        String locale = player == null ? "" : player.locale().toString().toLowerCase().replace('-', '_');
-        if (!locale.isEmpty() && !"en_us".equals(locale) && !"zh_cn".equals(locale)) {
-            lines.add(getMessage("search-lore-client").replace("%language%", langDisplayName(locale)));
-        }
         return lines.toArray(new String[0]);
     }
 

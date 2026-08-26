@@ -133,22 +133,20 @@ public class ItemRegistry {
         return out;
     }
 
-    /** 搜索：匹配 枚举名 / en_us / zh_cn / 玩家客户端语言 */
-    public List<Material> search(String query, String localeCode) {
+    /** 搜索：匹配 枚举名 / en_us / 配置的搜索语言列表 */
+    public List<Material> search(String query) {
         String q = query.toLowerCase(Locale.ROOT);
         List<Material> out = new ArrayList<>();
         for (Material mat : all) {
-            if (!isVisible(mat)) {
+            if (!isVisible(mat) || !matches(mat, q)) {
                 continue;
             }
-            if (matches(mat, q, localeCode)) {
-                out.add(mat);
-            }
+            out.add(mat);
         }
         return out;
     }
 
-    private boolean matches(Material mat, String q, String localeCode) {
+    private boolean matches(Material mat, String q) {
         if (mat.name().toLowerCase(Locale.ROOT).contains(q)) {
             return true;
         }
@@ -156,27 +154,10 @@ public class ItemRegistry {
         if (langContains("en_us", key, q)) {
             return true;
         }
-        // 配置的搜索语言列表
         for (String code : plugin.getConfig().getStringList("search.languages")) {
             String normalized = code == null ? "" : code.trim().toLowerCase(Locale.ROOT).replace('-', '_');
             if (!normalized.isEmpty() && !"en_us".equals(normalized)
                     && langContains(normalized, key, q)) {
-                return true;
-            }
-        }
-        // 玩家客户端语言（去重后追加）
-        if (localeCode != null) {
-            String normalized = localeCode.toLowerCase(Locale.ROOT).replace('-', '_');
-            boolean already = "en_us".equals(normalized) || normalized.isEmpty();
-            if (!already) {
-                for (String code : plugin.getConfig().getStringList("search.languages")) {
-                    if (normalized.equals(code == null ? "" : code.trim().toLowerCase(Locale.ROOT).replace('-', '_'))) {
-                        already = true;
-                        break;
-                    }
-                }
-            }
-            if (!already && langContains(normalized, key, q)) {
                 return true;
             }
         }

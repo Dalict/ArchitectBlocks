@@ -94,7 +94,6 @@ messages:
   search-lore-line2: '&7可搜索: &f英文ID &7/ &f英文名 &7/ &f%languages%'
   search-lore-sep: ' &7/'
   search-lore-none: '&7(未配置额外语言)'
-  search-lore-client: '&7你的客户端语言: &f%language% &7同样可搜'
   lang-zh-cn: '简体中文'
   lang-zh-tw: '繁体中文'
   lang-ja-jp: '日语'
