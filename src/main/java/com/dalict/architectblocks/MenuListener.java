@@ -134,7 +134,7 @@ public class MenuListener implements Listener {
             plugin.openAdmin(player);
             return;
         }
-        if (slot == 4) {
+        if (slot == 45) {
             // 漏斗：主页 -> 背包视图 / 背包视图 -> 主页（保持各自记忆页码）
             String[] state = plugin.getDb().loadState(player.getUniqueId());
             int remembered = 0;
@@ -155,12 +155,16 @@ public class MenuListener implements Listener {
             plugin.openPageSelect(player, 0, holder.isInvOnly() ? "inv" : "main", null);
             return;
         }
-        if (slot == 45 && pageCount > 1) {
+        if (slot == 48 && pageCount > 1) {
             plugin.openMainMenu(player, (page - 1 + pageCount) % pageCount, holder.isInvOnly());
             return;
         }
-        if (slot == 53 && pageCount > 1) {
+        if (slot == 50 && pageCount > 1) {
             plugin.openMainMenu(player, (page + 1) % pageCount, holder.isInvOnly());
+            return;
+        }
+        if (slot == 53) {
+            plugin.openTrash(player);
             return;
         }
         giveIfItem(player, items, page, slot);
@@ -189,12 +193,16 @@ public class MenuListener implements Listener {
             plugin.openPageSelect(player, 0, "search", keyword);
             return;
         }
-        if (slot == 45 && pageCount > 1) {
+        if (slot == 48 && pageCount > 1) {
             plugin.openSearchMenu(player, (page - 1 + pageCount) % pageCount, keyword);
             return;
         }
-        if (slot == 53 && pageCount > 1) {
+        if (slot == 50 && pageCount > 1) {
             plugin.openSearchMenu(player, (page + 1) % pageCount, keyword);
+            return;
+        }
+        if (slot == 53) {
+            plugin.openTrash(player);
             return;
         }
         giveIfItem(player, items, page, slot);
@@ -219,12 +227,16 @@ public class MenuListener implements Listener {
         // 选择页自身的翻页
         int total = totalOf(player, sourceView, holder.getKeyword());
         int selectPages = Math.max(1, (total + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
-        if (slot == 45 && selectPages > 1) {
+        if (slot == 48 && selectPages > 1) {
             plugin.openPageSelect(player, (holder.getPage() - 1 + selectPages) % selectPages, sourceView, holder.getKeyword());
             return;
         }
-        if (slot == 53 && selectPages > 1) {
+        if (slot == 50 && selectPages > 1) {
             plugin.openPageSelect(player, (holder.getPage() + 1) % selectPages, sourceView, holder.getKeyword());
+            return;
+        }
+        if (slot == 53) {
+            plugin.openTrash(player);
             return;
         }
         // 点击纸张：跳转到目标页
@@ -289,7 +301,7 @@ public class MenuListener implements Listener {
             plugin.openMenu(player);
             return;
         }
-        if (slot == 10) {
+        if (slot == 11) {
             boolean now = !plugin.getItemRegistry().isAllowSpawnEggs();
             plugin.getItemRegistry().setAllowSpawnEggs(now);
             player.sendMessage(plugin.getMessage("eggs-toggled")
@@ -297,7 +309,7 @@ public class MenuListener implements Listener {
             plugin.openAdmin(player);
             return;
         }
-        if (slot == 12) {
+        if (slot == 13) {
             boolean now = !plugin.getItemRegistry().isAllowAdminItems();
             plugin.getItemRegistry().setAllowAdminItems(now);
             player.sendMessage(plugin.getMessage("admin-items-toggled")
@@ -305,12 +317,8 @@ public class MenuListener implements Listener {
             plugin.openAdmin(player);
             return;
         }
-        if (slot == 14) {
+        if (slot == 15) {
             plugin.openAdminList(player, 0);
-            return;
-        }
-        if (slot == 16) {
-            plugin.openTrash(player);
             return;
         }
     }
@@ -327,12 +335,16 @@ public class MenuListener implements Listener {
         List<Material> items = plugin.collectBlacklisted();
         int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         int page = holder.getPage();
-        if (slot == 45 && pageCount > 1) {
+        if (slot == 48 && pageCount > 1) {
             plugin.openAdminList(player, (page - 1 + pageCount) % pageCount);
             return;
         }
-        if (slot == 53 && pageCount > 1) {
+        if (slot == 50 && pageCount > 1) {
             plugin.openAdminList(player, (page + 1) % pageCount);
+            return;
+        }
+        if (slot == 53) {
+            plugin.openTrash(player);
             return;
         }
         int offset = slot - ArchitectBlocks.ITEM_SLOT_START;

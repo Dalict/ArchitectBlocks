@@ -280,13 +280,16 @@ public class ArchitectBlocks extends JavaPlugin {
         inv.setItem(8, icon(material("back-button", Material.COMPASS),
                 color(getGuiConfigString("names.back", "&8[ &e返回 &8]"))));
         if (selectPages > 1) {
-            inv.setItem(45, icon(material("prev-button", Material.ARROW),
+            inv.setItem(48, icon(material("prev-button", Material.ARROW),
                     color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
-            inv.setItem(53, icon(material("next-button", Material.ARROW),
+            inv.setItem(50, icon(material("next-button", Material.ARROW),
                     color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
         }
+        inv.setItem(53, icon(material("trash-button", Material.LAVA_BUCKET),
+                color(getGuiConfigString("names.trash", "&8[ &6垃圾桶 &8]")),
+                color(getMessage("trash-lore"))));
         fillPanes(inv, 0, 8, 0, 1, 8);
-        fillPanes(inv, 45, 53, 45, 53);
+        fillPanes(inv, 45, 53, 48, 50, 53);
         player.openInventory(inv);
     }
 
@@ -325,23 +328,19 @@ public class ArchitectBlocks extends JavaPlugin {
         Inventory inv = Bukkit.createInventory(holder, 27, color(getMessage("title-admin")));
         holder.setInventory(inv);
 
-        inv.setItem(10, icon(material("eggs-toggle", Material.SPAWNER),
+        inv.setItem(11, icon(material("eggs-toggle", Material.SPAWNER),
                 color(getGuiConfigString("names.eggs-toggle", "&8[ &d允许刷怪蛋 &8]")),
                 stateLine(itemRegistry.isAllowSpawnEggs()),
                 color(getMessage("eggs-toggle-lore")),
                 color(getMessage("click-toggle"))));
-        inv.setItem(12, icon(material("admin-items-toggle", Material.BEDROCK),
+        inv.setItem(13, icon(material("admin-items-toggle", Material.BEDROCK),
                 color(getGuiConfigString("names.admin-items-toggle", "&8[ &4允许管理员物品 &8]")),
                 stateLine(itemRegistry.isAllowAdminItems()),
                 color(getMessage("admin-items-lore")),
                 color(getMessage("click-toggle"))));
-        inv.setItem(14, icon(material("blacklist-button", Material.BLACK_WOOL),
+        inv.setItem(15, icon(material("blacklist-button", Material.BLACK_WOOL),
                 color(getGuiConfigString("names.blacklist-list", "&8[ &c物品黑名单列表 &8]")),
                 color(getMessage("blacklist-list-lore"))));
-        inv.setItem(16, icon(material("trash-button", Material.LAVA_BUCKET),
-                color(getGuiConfigString("names.trash", "&8[ &6垃圾桶 &8]")),
-                color(getMessage("trash-lore"))));
-
         inv.setItem(22, icon(material("close-button", Material.BARRIER),
                 color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
         fillPanes(inv, 18, 26, 22);
@@ -381,13 +380,16 @@ public class ArchitectBlocks extends JavaPlugin {
         inv.setItem(8, icon(material("back-button", Material.COMPASS),
                 color(getGuiConfigString("names.back", "&8[ &e返回 &8]"))));
         if (pageCount > 1) {
-            inv.setItem(45, icon(material("prev-button", Material.ARROW),
+            inv.setItem(48, icon(material("prev-button", Material.ARROW),
                     color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
-            inv.setItem(53, icon(material("next-button", Material.ARROW),
+            inv.setItem(50, icon(material("next-button", Material.ARROW),
                     color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
         }
+        inv.setItem(53, icon(material("trash-button", Material.LAVA_BUCKET),
+                color(getGuiConfigString("names.trash", "&8[ &6垃圾桶 &8]")),
+                color(getMessage("trash-lore"))));
         fillPanes(inv, 0, 8, 0, 8);
-        fillPanes(inv, 45, 53, 45, 53);
+        fillPanes(inv, 45, 53, 48, 50, 53);
         player.openInventory(inv);
     }
 
@@ -405,7 +407,7 @@ public class ArchitectBlocks extends JavaPlugin {
 
     // ==================== 公共组件 ====================
 
-    /** 主菜单/背包视图边框 */
+    /** 主菜单/背包视图边框：45 漏斗 | 48 上一页 | 49 选页 | 50 下一页 | 53 垃圾桶 */
     private void buildCommonFrame(Player player, Inventory inv, int pageCount, boolean invOnly) {
         boolean isAdmin = player.hasPermission(PERM_ADMIN);
         inv.setItem(0, icon(material("close-button", Material.BARRIER),
@@ -414,38 +416,42 @@ public class ArchitectBlocks extends JavaPlugin {
             inv.setItem(1, icon(material("admin-button", Material.COMMAND_BLOCK),
                     color(getGuiConfigString("names.admin", "&8[ &c管理员设置 &8]"))));
         }
-        inv.setItem(4, icon(material("inv-button", Material.HOPPER),
-                color(invOnly ? getGuiConfigString("names.inv-back", "&8[ &e显示全部物品 &8]")
-                        : getGuiConfigString("names.inv", "&8[ &e只显示背包已有的物品 &8]")),
-                color(getMessage("inv-lore"))));
         inv.setItem(8, icon(material("search-button", Material.COMPASS),
                 color(getGuiConfigString("names.search", "&8[ &b搜索 &8]")),
                 color(getMessage("search-lore"))));
+        inv.setItem(45, icon(material("inv-button", Material.HOPPER),
+                color(invOnly ? getGuiConfigString("names.inv-back", "&8[ &e显示全部物品 &8]")
+                        : getGuiConfigString("names.inv", "&8[ &e只显示背包已有的物品 &8]")),
+                color(getMessage("inv-lore"))));
+        if (pageCount > 1) {
+            inv.setItem(48, icon(material("prev-button", Material.ARROW),
+                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
+            inv.setItem(50, icon(material("next-button", Material.ARROW),
+                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
+        }
         inv.setItem(49, icon(material("page-select-button", Material.PAPER),
                 color(getGuiConfigString("names.page-select", "&8[ &f选择页码 &8]")),
                 color(getMessage("page-select-button-lore"))));
-        if (pageCount > 1) {
-            inv.setItem(45, icon(material("prev-button", Material.ARROW),
-                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
-            inv.setItem(53, icon(material("next-button", Material.ARROW),
-                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
-        }
+        inv.setItem(53, icon(material("trash-button", Material.LAVA_BUCKET),
+                color(getGuiConfigString("names.trash", "&8[ &6垃圾桶 &8]")),
+                color(getMessage("trash-lore"))));
         List<Integer> reservedTop = new ArrayList<>();
         reservedTop.add(0);
-        reservedTop.add(4);
         reservedTop.add(8);
         if (isAdmin) reservedTop.add(1);
         fillPanes(inv, 0, 8, toInts(reservedTop));
         List<Integer> reservedBottom = new ArrayList<>();
+        reservedBottom.add(45);
         reservedBottom.add(49);
+        reservedBottom.add(53);
         if (pageCount > 1) {
-            reservedBottom.add(45);
-            reservedBottom.add(53);
+            reservedBottom.add(48);
+            reservedBottom.add(50);
         }
         fillPanes(inv, 45, 53, toInts(reservedBottom));
     }
 
-    /** 搜索结果边框：4 号为告示牌显示关键词，8 号返回主界面 */
+    /** 搜索结果边框：4 号告示牌显示关键词，8 号返回主界面，底排与主页一致 */
     private void buildSearchFrame(Player player, Inventory inv, int pageCount, String keyword) {
         boolean isAdmin = player.hasPermission(PERM_ADMIN);
         inv.setItem(0, icon(material("close-button", Material.BARRIER),
@@ -459,15 +465,18 @@ public class ArchitectBlocks extends JavaPlugin {
                 color(getMessage("keyword-lore"))));
         inv.setItem(8, icon(material("back-button", Material.COMPASS),
                 color(getGuiConfigString("names.back-main", "&8[ &e返回主界面 &8]"))));
+        if (pageCount > 1) {
+            inv.setItem(48, icon(material("prev-button", Material.ARROW),
+                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
+            inv.setItem(50, icon(material("next-button", Material.ARROW),
+                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
+        }
         inv.setItem(49, icon(material("page-select-button", Material.PAPER),
                 color(getGuiConfigString("names.page-select", "&8[ &f选择页码 &8]")),
                 color(getMessage("page-select-button-lore"))));
-        if (pageCount > 1) {
-            inv.setItem(45, icon(material("prev-button", Material.ARROW),
-                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
-            inv.setItem(53, icon(material("next-button", Material.ARROW),
-                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
-        }
+        inv.setItem(53, icon(material("trash-button", Material.LAVA_BUCKET),
+                color(getGuiConfigString("names.trash", "&8[ &6垃圾桶 &8]")),
+                color(getMessage("trash-lore"))));
         List<Integer> reservedTop = new ArrayList<>();
         reservedTop.add(0);
         reservedTop.add(4);
@@ -476,9 +485,10 @@ public class ArchitectBlocks extends JavaPlugin {
         fillPanes(inv, 0, 8, toInts(reservedTop));
         List<Integer> reservedBottom = new ArrayList<>();
         reservedBottom.add(49);
+        reservedBottom.add(53);
         if (pageCount > 1) {
-            reservedBottom.add(45);
-            reservedBottom.add(53);
+            reservedBottom.add(48);
+            reservedBottom.add(50);
         }
         fillPanes(inv, 45, 53, toInts(reservedBottom));
     }

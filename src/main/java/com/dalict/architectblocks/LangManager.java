@@ -34,30 +34,44 @@ public class LangManager {
         if (code == null || code.isEmpty()) {
             return Collections.emptyMap();
         }
-        return cache.computeIfAbsent(code, this::load);
+        String normalized = code.toLowerCase(java.util.Locale.ROOT).replace('-', '_');
+        return cache.computeIfAbsent(normalized, this::load);
     }
 
     private Map<String, String> load(String code) {
+        // 优先：服务器 jar 自带语言（与版本严格一致）
         try (JarFile jar = locateServerJar()) {
             JarEntry entry = jar.getJarEntry("assets/minecraft/lang/" + code + ".json");
-            if (entry == null) {
-                plugin.getLogger().warning("服务器 jar 中不存在语言文件: " + code + ".json（该语言搜索不可用）");
-                return Collections.emptyMap();
-            }
-            try (InputStream in = jar.getInputStream(entry);
-                 InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-                Map<String, String> map = new Gson().fromJson(reader,
-                        new TypeToken<Map<String, String>>() { }.getType());
-                if (map == null) {
-                    return Collections.emptyMap();
+            if (entry != null) {
+                try (InputStream in = jar.getInputStream(entry);
+                     InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                    Map<String, String> map = new Gson().fromJson(reader,
+                            new TypeToken<Map<String, String>>() { }.getType());
+                    if (map != null && !map.isEmpty()) {
+                        plugin.getLogger().info("已加载语言文件(服务器 jar): " + code + " (" + map.size() + " 条)");
+                        return map;
+                    }
                 }
-                plugin.getLogger().info("已加载语言文件: " + code + " (" + map.size() + " 条)");
-                return map;
+            }
+        } catch (Exception ignored) {
+        }
+        // 兜底：插件内置语言文件（lang/<code>.json）
+        try (InputStream in = LangManager.class.getResourceAsStream("/lang/" + code + ".json")) {
+            if (in != null) {
+                try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                    Map<String, String> map = new Gson().fromJson(reader,
+                            new TypeToken<Map<String, String>>() { }.getType());
+                    if (map != null && !map.isEmpty()) {
+                        plugin.getLogger().info("已加载语言文件(插件内置): " + code + " (" + map.size() + " 条)");
+                        return map;
+                    }
+                }
             }
         } catch (Exception e) {
             plugin.getLogger().warning("加载语言文件失败: " + code + " - " + e.getMessage());
-            return Collections.emptyMap();
         }
+        plugin.getLogger().warning("语言文件不可用，该语言搜索将被跳过: " + code);
+        return Collections.emptyMap();
     }
 
     private JarFile locateServerJar() throws IOException {

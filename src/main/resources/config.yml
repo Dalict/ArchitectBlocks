@@ -17,8 +17,8 @@ settings:
   click-amount: 64
   # 取物冷却（毫秒），0 = 无冷却，默认 1 秒
   give-cooldown-ms: 1000
-  # 排序方式: type=按种类(家族聚簇，接近创造栏观感) / alphabetical=按字母顺序
-  sort: type
+  # 排序方式: creative=按创造物品栏顺序(物品注册序) / alphabetical=按字母顺序
+  sort: creative
   # 聊天搜索输入的超时秒数，超时后会话自动失效
   chat-timeout-seconds: 30
 
@@ -35,7 +35,8 @@ database:
     use-ssl: false
 
 # GUI 界面配置
-# 主界面布局: 0 关闭 | 1 管理员设置(仅管理员可见) | 4 背包已有/关键词 | 8 搜索或返回 | 49 选择页码 | 45 上一页 | 53 下一页
+# 主界面布局: 0 关闭 | 1 管理员设置(仅管理员可见) | 4 搜索时显示关键词 | 8 搜索或返回
+# 底排: 45 背包已有切换 | 48 上一页 | 49 选择页码 | 50 下一页 | 53 垃圾桶
 # 物品区: 9-44
 gui:
   use-pane: true
