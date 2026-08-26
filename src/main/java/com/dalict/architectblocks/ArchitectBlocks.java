@@ -495,7 +495,7 @@ public class ArchitectBlocks extends JavaPlugin {
         fillPanes(inv, 45, 53, toInts(reservedBottom));
     }
 
-    /** 搜索按钮 lore：按服主配置的语言动态列出可搜索语言 */
+    /** 搜索按钮 lore：%languages% 直接显示 search.languages 的内容 */
     private String[] searchLore(Player player) {
         List<String> lines = new ArrayList<>();
         lines.add(color(getMessage("search-lore-line1")));
@@ -508,32 +508,13 @@ public class ArchitectBlocks extends JavaPlugin {
             if (langs.length() > 0) {
                 langs.append(color(getMessage("search-lore-sep")));
             }
-            langs.append(langDisplayName(normalized));
+            langs.append(normalized);
         }
         if (langs.length() == 0) {
             langs.append(color(getMessage("search-lore-none")));
         }
-        lines.add(getMessage("search-lore-line2").replace("%languages%", langs.toString()));
+        lines.add(color(getMessage("search-lore-line2").replace("%languages%", langs.toString())));
         return lines.toArray(new String[0]);
-    }
-
-    /** 常见语言的友好名称，未收录的显示原始代码 */
-    private String langDisplayName(String code) {
-        switch (code) {
-            case "zh_cn": return color(getMessage("lang-zh-cn"));
-            case "zh_tw": return color(getMessage("lang-zh-tw"));
-            case "ja_jp": return color(getMessage("lang-ja-jp"));
-            case "ko_kr": return color(getMessage("lang-ko-kr"));
-            case "ru_ru": return color(getMessage("lang-ru-ru"));
-            case "en_us": return color(getMessage("lang-en-us"));
-            case "fr_fr": return color(getMessage("lang-fr-fr"));
-            case "de_de": return color(getMessage("lang-de-de"));
-            case "es_es": return color(getMessage("lang-es-es"));
-            case "pt_br": return color(getMessage("lang-pt-br"));
-            case "th_th": return color(getMessage("lang-th-th"));
-            case "vi_vn": return color(getMessage("lang-vi-vn"));
-            default: return code;
-        }
     }
 
     /** 填充物品网格（lore 数量按最大堆叠自适应） */

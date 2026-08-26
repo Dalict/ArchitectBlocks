@@ -1,14 +1,12 @@
 package com.dalict.architectblocks;
 
 import org.bukkit.Material;
-import org.bukkit.Registry;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,8 +31,6 @@ public class ItemRegistry {
 
     private final ArchitectBlocks plugin;
     private final List<Material> all = new ArrayList<>();
-    /** 创造物品栏排序索引：来自 Registry.ITEM 的注册顺序 */
-    private final Map<Material, Integer> creativeIndex = new HashMap<>();
 
     public ItemRegistry(ArchitectBlocks plugin) {
         this.plugin = plugin;
@@ -43,18 +39,6 @@ public class ItemRegistry {
     /** 重新检索全部物品 */
     public void reload() {
         all.clear();
-        creativeIndex.clear();
-        int idx = 0;
-        try {
-            for (var itemType : Registry.ITEM) {
-                Material mat = Material.matchMaterial(String.valueOf(itemType.getKey()));
-                if (mat != null) {
-                    creativeIndex.put(mat, idx++);
-                }
-            }
-        } catch (Throwable t) {
-            plugin.getLogger().warning("无法读取物品注册表顺序，创造序排序退化为字母序: " + t.getMessage());
-        }
         for (Material mat : Material.values()) {
             if (mat.isItem() && !mat.isAir()) {
                 all.add(mat);
@@ -183,12 +167,18 @@ public class ItemRegistry {
 
     // ---------- 排序 ----------
 
-    /** 排序: alphabetical=字母序, 其他(默认 creative)=按原版物品注册顺序(近似创造物品栏) */
+    /** 排序: type=按种类(家族聚簇，接近创造栏观感), alphabetical=字母序 */
     private Comparator<Material> currentComparator() {
-        String mode = plugin.getConfig().getString("settings.sort", "creative");
-        if ("alphabetical".equalsIgnoreCase(mode) || creativeIndex.isEmpty()) {
+        String mode = plugin.getConfig().getString("settings.sort", "type");
+        if ("alphabetical".equalsIgnoreCase(mode)) {
             return Comparator.comparing(Enum::name);
         }
-        return Comparator.comparing(mat -> creativeIndex.getOrDefault(mat, Integer.MAX_VALUE));
+        return Comparator.comparing(ItemRegistry::family).reversed().thenComparing(Enum::name);
+    }
+
+    private static String family(Material mat) {
+        String n = mat.name();
+        int idx = n.lastIndexOf('_');
+        return idx < 0 ? n : n.substring(idx + 1);
     }
 }
