@@ -10,12 +10,11 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 处理菜单内的一切点击：取物品(带冷却)、翻页(循环)、返回、管理员操作。
+ * 处理菜单内的一切点击：取物品(带冷却)、循环翻页、页码跳转、搜索入口、垃圾桶放行、管理员操作。
  */
 public class MenuListener implements Listener {
 
@@ -27,9 +26,22 @@ public class MenuListener implements Listener {
 
     @EventHandler
     public void onDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof MenuHolder) {
-            event.setCancelled(true);
+        Inventory top = event.getView().getTopInventory();
+        if (!(top.getHolder() instanceof MenuHolder)) {
+            return;
         }
+        MenuHolder holder = (MenuHolder) top.getHolder();
+        if (holder.getType() == MenuHolder.Type.TRASH) {
+            // 垃圾桶：拖拽不触及 0/8 号按钮则放行
+            for (int raw : event.getRawSlots()) {
+                if (raw == 0 || raw == 8) {
+                    event.setCancelled(true);
+                    return;
+                }
+            }
+            return;
+        }
+        event.setCancelled(true);
     }
 
     @EventHandler
@@ -38,6 +50,23 @@ public class MenuListener implements Listener {
         if (!(top.getHolder() instanceof MenuHolder)) {
             return;
         }
+        MenuHolder holder = (MenuHolder) top.getHolder();
+
+        // 垃圾桶：只保护关闭/返回两个按钮，其余点击全部放行（物品可自由放入，退出即销毁）
+        if (holder.getType() == MenuHolder.Type.TRASH) {
+            if (event.getClickedInventory() == top && (event.getSlot() == 0 || event.getSlot() == 8)) {
+                event.setCancelled(true);
+                if (!(event.getWhoClicked() instanceof Player)) return;
+                Player trashPlayer = (Player) event.getWhoClicked();
+                if (event.getSlot() == 0) {
+                    trashPlayer.closeInventory();
+                } else {
+                    plugin.openMenu(trashPlayer);
+                }
+            }
+            return;
+        }
+
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player)) {
             return;
@@ -48,7 +77,7 @@ public class MenuListener implements Listener {
             event.getView().close();
             return;
         }
-        MenuHolder holder = (MenuHolder) top.getHolder();
+
         // 黑名单管理页：点击自己背包中的物品 = 加入黑名单
         if (holder.getType() == MenuHolder.Type.ADMIN_LIST
                 && event.getClickedInventory() != null
@@ -70,103 +99,170 @@ public class MenuListener implements Listener {
         if (clicked == null || clicked.getType() == Material.AIR) {
             return;
         }
-        int size = top.getSize();
-        int bottomStart = size - 9;
         switch (holder.getType()) {
-            case CATEGORIES:
-                handleCategories(player, slot, bottomStart);
+            case MAIN:
+                handleMain(player, holder, slot);
                 break;
-            case ITEMS:
-                handleItems(player, holder, slot, size, bottomStart);
+            case SEARCH:
+                handleSearch(player, holder, slot);
                 break;
-            case INV:
-                handleInv(player, holder, slot, size, bottomStart);
+            case PAGE_SELECT:
+                handlePageSelect(player, holder, slot);
                 break;
-            case ADMIN_MAIN:
-                handleAdminMain(player, slot, bottomStart);
-                break;
-            case ADMIN_CATS:
-                handleAdminCats(player, slot, bottomStart);
+            case ADMIN:
+                handleAdmin(player, slot);
                 break;
             case ADMIN_LIST:
-                handleAdminList(player, holder, slot, size, bottomStart);
+                handleAdminList(player, holder, slot);
                 break;
         }
     }
 
-    // ---------- 分类菜单 ----------
+    // ---------- 主菜单 / 背包视图 ----------
 
-    private void handleCategories(Player player, int slot, int bottomStart) {
-        if (slot == bottomStart + 4) {
+    private void handleMain(Player player, MenuHolder holder, int slot) {
+        List<Material> items = holder.isInvOnly()
+                ? plugin.getItemRegistry().getInventoryVisible(player)
+                : plugin.getItemRegistry().getVisible();
+        int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
+        int page = holder.getPage();
+        if (slot == 0) {
             player.closeInventory();
             return;
         }
+        if (slot == 1 && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
+            plugin.openAdmin(player);
+            return;
+        }
         if (slot == 4) {
-            plugin.openInventoryMenu(player, 0);
+            // 漏斗：主页 -> 背包视图 / 背包视图 -> 主页（保持各自记忆页码）
+            String[] state = plugin.getDb().loadState(player.getUniqueId());
+            int remembered = 0;
+            if (state != null) {
+                try {
+                    remembered = "inv".equals(state[0]) == holder.isInvOnly() ? page : Integer.parseInt(state[2]);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            plugin.openMainMenu(player, Math.max(0, remembered), !holder.isInvOnly());
             return;
         }
-        if (slot == bottomStart && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
-            plugin.openAdminMain(player);
+        if (slot == 8) {
+            plugin.getChatInput().startSearch(player);
             return;
         }
-        Category category = plugin.getCategorySlotMap().get(slot);
-        if (category != null) {
-            // 恢复该玩家在此分类的记忆页码
-            int remembered = plugin.getDb().getPage(player.getUniqueId(), category.getConfigKey());
-            plugin.openItemMenu(player, category, remembered);
+        if (slot == 49) {
+            plugin.openPageSelect(player, 0, holder.isInvOnly() ? "inv" : "main", null);
+            return;
         }
+        if (slot == 45 && pageCount > 1) {
+            plugin.openMainMenu(player, (page - 1 + pageCount) % pageCount, holder.isInvOnly());
+            return;
+        }
+        if (slot == 53 && pageCount > 1) {
+            plugin.openMainMenu(player, (page + 1) % pageCount, holder.isInvOnly());
+            return;
+        }
+        giveIfItem(player, items, page, slot);
     }
 
-    // ---------- 物品页 ----------
+    // ---------- 搜索结果 ----------
 
-    private void handleItems(Player player, MenuHolder holder, int slot, int size, int bottomStart) {
-        Category category = holder.getCategory();
-        int pageSize = size - 9;
-        List<Material> items = plugin.getCategoryManager().getDisplayItems(category);
-        int pageCount = Math.max(1, (items.size() + pageSize - 1) / pageSize);
+    private void handleSearch(Player player, MenuHolder holder, int slot) {
+        String keyword = holder.getKeyword();
+        List<Material> items = plugin.getItemRegistry().search(keyword, player.locale().toString());
+        int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         int page = holder.getPage();
-        if (slot == bottomStart && pageCount > 1) {
-            plugin.openItemMenu(player, category, (page - 1 + pageCount) % pageCount);
+        if (slot == 0) {
+            player.closeInventory();
             return;
         }
-        if (slot == size - 1 && pageCount > 1) {
-            plugin.openItemMenu(player, category, (page + 1) % pageCount);
+        if (slot == 1 && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
+            plugin.openAdmin(player);
             return;
         }
-        if (slot == bottomStart + 4) {
-            plugin.openCategoryMenu(player);
+        if (slot == 8) {
+            plugin.openMainMenu(player, 0, false);
             return;
         }
-        giveIfItem(player, items, page, pageSize, slot);
+        if (slot == 49) {
+            plugin.openPageSelect(player, 0, "search", keyword);
+            return;
+        }
+        if (slot == 45 && pageCount > 1) {
+            plugin.openSearchMenu(player, (page - 1 + pageCount) % pageCount, keyword);
+            return;
+        }
+        if (slot == 53 && pageCount > 1) {
+            plugin.openSearchMenu(player, (page + 1) % pageCount, keyword);
+            return;
+        }
+        giveIfItem(player, items, page, slot);
     }
 
-    // ---------- 背包已有物品页 ----------
+    // ---------- 页码跳转 ----------
 
-    private void handleInv(Player player, MenuHolder holder, int slot, int size, int bottomStart) {
-        int pageSize = size - 9;
-        List<Material> items = plugin.getCategoryManager().getInventoryItems(player);
-        int pageCount = Math.max(1, (items.size() + pageSize - 1) / pageSize);
-        int page = holder.getPage();
-        if (slot == bottomStart && pageCount > 1) {
-            plugin.openInventoryMenu(player, (page - 1 + pageCount) % pageCount);
+    private void handlePageSelect(Player player, MenuHolder holder, int slot) {
+        if (slot == 0) {
+            player.closeInventory();
             return;
         }
-        if (slot == size - 1 && pageCount > 1) {
-            plugin.openInventoryMenu(player, (page + 1) % pageCount);
+        if (slot == 1 && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
+            plugin.openAdmin(player);
             return;
         }
-        if (slot == bottomStart + 4) {
-            plugin.openCategoryMenu(player);
+        if (slot == 8) {
+            plugin.openMenu(player);
             return;
         }
-        giveIfItem(player, items, page, pageSize, slot);
+        String sourceView = holder.getKeyword() != null ? "search" : (holder.isInvOnly() ? "inv" : "main");
+        // 选择页自身的翻页
+        int total = totalOf(player, sourceView, holder.getKeyword());
+        int selectPages = Math.max(1, (total + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
+        if (slot == 45 && selectPages > 1) {
+            plugin.openPageSelect(player, (holder.getPage() - 1 + selectPages) % selectPages, sourceView, holder.getKeyword());
+            return;
+        }
+        if (slot == 53 && selectPages > 1) {
+            plugin.openPageSelect(player, (holder.getPage() + 1) % selectPages, sourceView, holder.getKeyword());
+            return;
+        }
+        // 点击纸张：跳转到目标页
+        if (slot >= ArchitectBlocks.ITEM_SLOT_START && slot < ArchitectBlocks.ITEM_SLOT_START + ArchitectBlocks.PAGE_SIZE) {
+            int targetPage = holder.getPage() * ArchitectBlocks.PAGE_SIZE + (slot - ArchitectBlocks.ITEM_SLOT_START);
+            if (targetPage >= total) {
+                return;
+            }
+            if ("search".equals(sourceView)) {
+                plugin.openSearchMenu(player, targetPage, holder.getKeyword());
+            } else if ("inv".equals(sourceView)) {
+                plugin.openMainMenu(player, targetPage, true);
+            } else {
+                plugin.openMainMenu(player, targetPage, false);
+            }
+        }
     }
 
-    private void giveIfItem(Player player, List<Material> items, int page, int pageSize, int slot) {
-        if (slot < 0 || slot >= pageSize) {
+    private int totalOf(Player player, String view, String keyword) {
+        List<Material> items;
+        if ("inv".equals(view)) {
+            items = plugin.getItemRegistry().getInventoryVisible(player);
+        } else if ("search".equals(view)) {
+            items = plugin.getItemRegistry().search(keyword == null ? "" : keyword, player.locale().toString());
+        } else {
+            items = plugin.getItemRegistry().getVisible();
+        }
+        return Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
+    }
+
+    // ---------- 取物 ----------
+
+    private void giveIfItem(Player player, List<Material> items, int page, int slot) {
+        int offset = slot - ArchitectBlocks.ITEM_SLOT_START;
+        if (offset < 0 || offset >= ArchitectBlocks.PAGE_SIZE) {
             return;
         }
-        int index = page * pageSize + slot;
+        int index = page * ArchitectBlocks.PAGE_SIZE + offset;
         if (index >= items.size()) {
             return;
         }
@@ -186,80 +282,64 @@ public class MenuListener implements Listener {
         player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 0.6f, 1.2f);
     }
 
-    // ---------- 管理员菜单 ----------
+    // ---------- 管理员 ----------
 
-    private void handleAdminMain(Player player, int slot, int bottomStart) {
-        if (slot == bottomStart + 4) {
-            player.closeInventory();
+    private void handleAdmin(Player player, int slot) {
+        if (slot == 22) {
+            plugin.openMenu(player);
+            return;
+        }
+        if (slot == 10) {
+            boolean now = !plugin.getItemRegistry().isAllowSpawnEggs();
+            plugin.getItemRegistry().setAllowSpawnEggs(now);
+            player.sendMessage(plugin.getMessage("eggs-toggled")
+                    .replace("%state%", now ? plugin.getMessage("state-enabled") : plugin.getMessage("state-disabled")));
+            plugin.openAdmin(player);
             return;
         }
         if (slot == 12) {
-            plugin.openAdminList(player, 0);
-        } else if (slot == 14) {
-            plugin.openAdminCats(player);
-        }
-    }
-
-    private void handleAdminCats(Player player, int slot, int bottomStart) {
-        if (slot == bottomStart + 4) {
-            plugin.openAdminMain(player);
-            return;
-        }
-        if (slot == 28) {
-            boolean now = !plugin.getCategoryManager().isAllowAdminItems();
-            plugin.getCategoryManager().setAllowAdminItems(now);
+            boolean now = !plugin.getItemRegistry().isAllowAdminItems();
+            plugin.getItemRegistry().setAllowAdminItems(now);
             player.sendMessage(plugin.getMessage("admin-items-toggled")
                     .replace("%state%", now ? plugin.getMessage("state-enabled") : plugin.getMessage("state-disabled")));
-            plugin.openAdminCats(player);
+            plugin.openAdmin(player);
             return;
         }
-        // 分类开关：槽位与 openAdminCats 的布局算法一致
-        int rowCap = 7;
-        int total = Category.values().length;
-        for (Category c : Category.values()) {
-            int idx = c.ordinal();
-            int row = idx / rowCap;
-            int inRow = Math.min(total - row * rowCap, rowCap);
-            int expected = 10 + row * 9 + (rowCap - inRow) / 2 + (idx % rowCap);
-            if (expected == slot) {
-                boolean now = !plugin.getCategoryManager().isEnabled(c);
-                plugin.getCategoryManager().setEnabled(c, now);
-                player.sendMessage(plugin.getMessage("category-toggled")
-                        .replace("%category%", c.getDisplayName())
-                        .replace("%state%", now ? plugin.getMessage("state-enabled") : plugin.getMessage("state-disabled")));
-                plugin.openAdminCats(player);
-                return;
-            }
+        if (slot == 14) {
+            plugin.openAdminList(player, 0);
+            return;
+        }
+        if (slot == 16) {
+            plugin.openTrash(player);
+            return;
         }
     }
 
-    private void handleAdminList(Player player, MenuHolder holder, int slot, int size, int bottomStart) {
-        int pageSize = size - 9;
-        if (slot == bottomStart + 4) {
-            plugin.openAdminMain(player);
+    private void handleAdminList(Player player, MenuHolder holder, int slot) {
+        if (slot == 0) {
+            player.closeInventory();
             return;
         }
-        List<Material> items = new ArrayList<>();
-        for (Material mat : plugin.getCategoryManager().getAllItems()) {
-            if (plugin.getDb().getFlag(mat) == MaterialFlag.BLACK) {
-                items.add(mat);
-            }
+        if (slot == 8) {
+            plugin.openAdmin(player);
+            return;
         }
-        int pageCount = Math.max(1, (items.size() + pageSize - 1) / pageSize);
+        List<Material> items = plugin.collectBlacklisted();
+        int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         int page = holder.getPage();
-        if (slot == bottomStart && pageCount > 1) {
+        if (slot == 45 && pageCount > 1) {
             plugin.openAdminList(player, (page - 1 + pageCount) % pageCount);
             return;
         }
-        if (slot == size - 1 && pageCount > 1) {
+        if (slot == 53 && pageCount > 1) {
             plugin.openAdminList(player, (page + 1) % pageCount);
             return;
         }
-        // 点击列表中的物品 = 移出黑名单
-        if (slot < 0 || slot >= pageSize) {
+        int offset = slot - ArchitectBlocks.ITEM_SLOT_START;
+        if (offset < 0 || offset >= ArchitectBlocks.PAGE_SIZE) {
             return;
         }
-        int index = page * pageSize + slot;
+        int index = page * ArchitectBlocks.PAGE_SIZE + offset;
         if (index >= items.size()) {
             return;
         }

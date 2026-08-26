@@ -80,10 +80,14 @@ public class Database {
         String pagesTable = "CREATE TABLE IF NOT EXISTS ab_player_pages ("
                 + "uuid VARCHAR(40) NOT NULL, category VARCHAR(40) NOT NULL, page INT NOT NULL,"
                 + " PRIMARY KEY(uuid, category))";
+        String stateTable = "CREATE TABLE IF NOT EXISTS ab_player_state ("
+                + "uuid VARCHAR(40) PRIMARY KEY, view VARCHAR(16) NOT NULL,"
+                + " keyword VARCHAR(64), page INT NOT NULL)";
         try (Statement st = conn.createStatement()) {
             st.execute(settingsTable);
             st.execute(flagsTable);
             st.execute(pagesTable);
+            st.execute(stateTable);
         }
     }
 
@@ -172,33 +176,41 @@ public class Database {
         }
     }
 
-    /** 读取玩家在某分类的记忆页码（同步读，SQLite/内网 MySQL 足够快） */
-    public int getPage(UUID uuid, String category) {
-        if (conn == null) return 0;
+    /** 读取玩家界面状态：[view, keyword, page]；无记录返回 null（同步读，主键单行查询） */
+    public String[] loadState(UUID uuid) {
+        if (conn == null) return null;
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT page FROM ab_player_pages WHERE uuid = ? AND category = ?")) {
+                "SELECT view, keyword, page FROM ab_player_state WHERE uuid = ?")) {
             ps.setString(1, uuid.toString());
-            ps.setString(2, category);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? Math.max(0, rs.getInt(1)) : 0;
+                if (rs.next()) {
+                    return new String[]{rs.getString(1), rs.getString(2), String.valueOf(rs.getInt(3))};
+                }
+                return null;
             }
         } catch (SQLException e) {
-            plugin.getLogger().warning("页码读取失败: " + e.getMessage());
-            return 0;
+            plugin.getLogger().warning("界面状态读取失败: " + e.getMessage());
+            return null;
         }
     }
 
-    public void setPage(UUID uuid, String category, int page) {
-        asyncUpdate("INSERT INTO ab_player_pages(uuid, category, page) VALUES(?, ?, ?)"
-                        + (mysql ? " ON DUPLICATE KEY UPDATE page = VALUES(page)" : " ON CONFLICT(uuid, category) DO UPDATE SET page = excluded.page"),
+    public void saveState(UUID uuid, String view, String keyword, int page) {
+        asyncUpdate("INSERT INTO ab_player_state(uuid, view, keyword, page) VALUES(?, ?, ?, ?)"
+                        + (mysql ? " ON DUPLICATE KEY UPDATE view = VALUES(view), keyword = VALUES(keyword), page = VALUES(page)"
+                                 : " ON CONFLICT(uuid) DO UPDATE SET view = excluded.view, keyword = excluded.keyword, page = excluded.page"),
                 ps -> {
                     try {
                         ps.setString(1, uuid.toString());
-                        ps.setString(2, category);
-                        ps.setInt(3, Math.max(0, page));
+                        ps.setString(2, view);
+                        if (keyword == null || keyword.isEmpty()) {
+                            ps.setString(3, null);
+                        } else {
+                            ps.setString(3, keyword.length() > 64 ? keyword.substring(0, 64) : keyword);
+                        }
+                        ps.setInt(4, Math.max(0, page));
                         ps.executeUpdate();
                     } catch (SQLException e) {
-                        plugin.getLogger().warning("页码写入失败: " + e.getMessage());
+                        plugin.getLogger().warning("界面状态写入失败: " + e.getMessage());
                     }
                 });
     }

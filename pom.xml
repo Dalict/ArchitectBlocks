@@ -6,7 +6,7 @@
 
     <groupId>com.dalict</groupId>
     <artifactId>architectblocks</artifactId>
-    <version>b1.8.0</version>
+    <version>b1.9.0</version>
     <packaging>jar</packaging>
 
     <name>ArchitectBlocks</name>

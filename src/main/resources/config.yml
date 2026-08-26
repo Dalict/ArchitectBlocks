@@ -1,7 +1,7 @@
 # ArchitectBlocks 配置
 # 作者: Dalict
 # 物品列表随服务器版本自动更新
-# 分类开关 / 物品黑白名单 / 玩家记忆页码 存储在数据库中，游戏内 /mats admin 实时管理
+# 开关(刷怪蛋/管理员物品)、物品黑名单、玩家界面状态存储在数据库中，游戏内 /mats admin 实时管理
 
 settings:
   # 每次点击获取的物品数量 (1-64)
@@ -10,10 +10,10 @@ settings:
   give-cooldown-ms: 1000
   # 排序方式: type=按种类(家族聚簇，接近创造栏观感) / alphabetical=按字母顺序
   sort: type
-  # 分类重叠：原木/菌柄等同时出现在建筑方块和自然方块（与原版创造栏一致）
-  overlap: true
+  # 聊天搜索输入的超时秒数，超时后会话自动失效
+  chat-timeout-seconds: 30
 
-# 数据库：分类开关、物品黑白名单、玩家记忆页码
+# 数据库：开关设置、物品黑名单、玩家界面状态
 database:
   # sqlite 或 mysql
   type: sqlite
@@ -26,84 +26,80 @@ database:
     use-ssl: false
 
 # GUI 界面配置
-# 材质名使用 Material 枚举名；名称支持 & 颜色代码
+# 主界面布局: 0 关闭 | 1 管理员设置(仅管理员可见) | 4 背包已有/关键词 | 8 搜索或返回 | 49 选择页码 | 45 上一页 | 53 下一页
+# 物品区: 9-44
 gui:
-  # 分类菜单尺寸 (9-54，9 的倍数)，分类多时自动扩容
-  category-menu-size: 27
-  # 物品菜单尺寸 (9-54，9 的倍数)，物品区为尺寸-9格，底排为导航
-  item-menu-size: 54
-  # 底排空位是否填充玻璃板
   use-pane: true
-  # 分类按钮图标，key 与分类开关键一致，留空或删掉则用内置默认
-  icons:
-    building_blocks: BRICKS
-    colored_blocks: CYAN_WOOL
-    natural_blocks: GRASS_BLOCK
-    functional_blocks: OAK_SIGN
-    redstone_blocks: REDSTONE
-    tools_utilities: DIAMOND_PICKAXE
-    combat: NETHERITE_SWORD
-    food_drinks: GOLDEN_APPLE
-    ingredients: IRON_INGOT
-    spawn_eggs: CREEPER_SPAWN_EGG
   items:
     pane: WHITE_STAINED_GLASS_PANE
-    back-button: CLOCK
+    close-button: BARRIER
+    back-button: COMPASS
+    search-button: COMPASS
+    inv-button: HOPPER
+    keyword-button: OAK_SIGN
+    page-select-button: PAPER
+    admin-button: COMMAND_BLOCK
     prev-button: ARROW
     next-button: ARROW
-    close-button: CLOCK
-    inv-button: HOPPER
-    admin-button: COMMAND_BLOCK
+    eggs-toggle: SPAWNER
+    admin-items-toggle: BEDROCK
     blacklist-button: BLACK_WOOL
-    whitelist-button: WHITE_WOOL
-    toggle-button: COMPARATOR
-    admin-items-button: BEDROCK
-    filter-button: HOPPER
+    trash-button: LAVA_BUCKET
   names:
-    category: '&8[ &f%name% &8]'
-    back: '&8[ &a返回分类菜单 &8]'
-    back-admin: '&8[ &a返回管理主页 &8]'
+    close: '&8[ &c关闭 &8]'
+    back: '&8[ &e返回 &8]'
+    back-main: '&8[ &e返回主界面 &8]'
+    search: '&8[ &b搜索 &8]'
+    inv: '&8[ &e只显示背包已有的物品 &8]'
+    inv-back: '&8[ &e显示全部物品 &8]'
+    page-select: '&8[ &f选择页码 &8]'
+    admin: '&8[ &c管理员设置 &8]'
     prev: '&8[ &f上一页 &8]'
     next: '&8[ &f下一页 &8]'
-    close: '&8[ &b关闭菜单 &8]'
-    inv: '&8[ &e获取背包已有的物品 &8]'
-    admin: '&8[ &c管理员设置 &8]'
+    eggs-toggle: '&8[ &d允许刷怪蛋 &8]'
+    admin-items-toggle: '&8[ &4允许管理员物品 &8]'
     blacklist-list: '&8[ &c物品黑名单列表 &8]'
-    whitelist-list: '&8[ &f物品白名单列表 &8]'
-    cats: '&8[ &6分类与功能开关 &8]'
-    admin-items: '&8[ &4允许管理员物品 &8]'
-  category-lore:
-    - '&7共 &f%count% &7种物品'
-    - ''
-    - '&a点击进入'
+    trash: '&8[ &6垃圾桶 &8]'
 
 messages:
-  title-categories: '&8材料分类'
-  title-items: '&8材料 » %category% %page%/%max%'
+  # 标题（可用 %page% %max%；搜索另支持 %keyword%）
+  title-main: '&8物品 %page%/%max%'
   title-inv: '&8背包物品 %page%/%max%'
-  title-admin-main: '&8ArchitectBlocks 管理'
-  title-admin-cats: '&8分类与功能开关'
-  title-admin-list-black: '&8黑名单管理 %page%/%max%'
+  title-search: '&8搜索: %keyword% %page%/%max%'
+  title-page-select: '&8选择页码 %page%/%max%'
+  title-trash: '&8垃圾桶'
+  title-admin: '&8管理设置'
+  title-admin-list: '&8黑名单管理 %page%/%max%'
+  # 物品 lore，可用 %amount%
   item-lore: '&a点击获取 &e%amount% 个'
-  inv-lore: '&7把你想要的物品放进背包'
-  inv-empty: '&c背包中没有可显示的物品'
-  list-empty: '&7黑名单为空，点击背包中的物品即可添加'
+  inv-lore: '&7把想要的物品放进背包即可筛出'
+  search-lore: '&7支持英文ID、英文名、简中与客户端语言'
+  search-prompt: '&e请在聊天栏输入搜索关键词（输入 &fcancel &e或 &f取消 &e放弃，30秒内有效）'
+  search-cancelled: '&7已取消搜索。'
+  search-timeout: '&c输入超时，搜索已取消。'
+  search-empty-input: '&c输入为空，请重新点击搜索。'
+  search-no-result: '&7没有找到与 &f%keyword% &7匹配的物品。'
+  keyword-name: '&8[ &e关键词: &f%keyword% &8]'
+  keyword-lore: '&7当前搜索使用的关键词'
+  page-select-name: '&f第 %page% 页'
+  page-select-lore: '&e点击跳转到第 %page% 页'
+  page-select-button-lore: '&7跳转到指定页码'
   give-cooldown: '&c操作太快，请稍候...'
-  state-normal: '&7状态: &f普通'
-  state-black: '&7状态: &c黑名单 (隐藏)'
-  state-white: '&7状态: &a白名单 (始终显示)'
-  state-admin-item: '&7属于 &4管理员物品'
+  # 管理界面
   state-enabled: '&7当前: &a开启'
   state-disabled: '&7当前: &c关闭'
+  state-black: '&7状态: &c黑名单 (隐藏)'
   click-toggle: '&e点击切换开/关'
-  category-toggled: '&a分类 %category% 已设置为 %state%'
+  eggs-toggle-lore: '&7关闭后所有刷怪蛋不可见'
+  eggs-toggled: '&a允许刷怪蛋 已设置为 %state%'
+  admin-items-lore: '&7开启后创造专属的管理员物品才显示'
   admin-items-toggled: '&a允许管理员物品 已设置为 %state%'
-  admin-items-lore: '&7开启后生存无法获取的特殊物品才会显示'
-  blacklist-list-lore: '&7ⓘ 添加: 保持界面打开，点击背包中的物品'
-  whitelist-list-lore: '&7ⓘ 移除: 点击列表中的物品'
-  cats-lore: '&7实时开关每个分类与管理员物品'
+  blacklist-list-lore: '&7ⓘ 添加: 保持界面打开，点击背包中的物品
+&7ⓘ 移除: 点击列表中的物品'
   list-click-remove: '&e点击移出黑名单'
+  list-empty: '&7黑名单为空，点击背包中的物品即可添加。'
   flag-set-black: '&c%item% 已加入黑名单'
   flag-cleared: '&7%item% 已清除标记'
-  no-permission: '&c你没有权限使用材料菜单！'
+  trash-lore: '&7放入物品后关闭界面即销毁'
+  no-permission: '&c你没有权限使用该菜单！'
   reloaded: '&aArchitectBlocks 配置已重载！'

@@ -4,52 +4,42 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
 /**
- * 菜单标识，用于在点击事件中区分本插件打开的菜单。
- * listMode 仅用于 ADMIN_LIST：black = 黑名单管理视图，white = 白名单管理视图。
+ * 菜单标识。keyword 仅用于 SEARCH / PAGE_SELECT(来源为搜索时)；
+ * invOnly 用于 MAIN（true = 只显示背包已有物品）。
  */
 public class MenuHolder implements InventoryHolder {
 
     public enum Type {
-        CATEGORIES, ITEMS, INV, ADMIN_MAIN, ADMIN_CATS, ADMIN_LIST
+        MAIN, SEARCH, PAGE_SELECT, TRASH, ADMIN, ADMIN_LIST
     }
 
     private final Type type;
-    private final Category category;
     private final int page;
-    private final String listMode;
-    private final boolean invFilter;
+    private final String keyword;
+    private final boolean invOnly;
     private Inventory inventory;
 
-    public MenuHolder(Type type, Category category, int page) {
-        this(type, category, page, null, false);
-    }
-
-    public MenuHolder(Type type, Category category, int page, String listMode, boolean invFilter) {
+    public MenuHolder(Type type, int page, String keyword, boolean invOnly) {
         this.type = type;
-        this.category = category;
         this.page = page;
-        this.listMode = listMode;
-        this.invFilter = invFilter;
+        this.keyword = keyword;
+        this.invOnly = invOnly;
     }
 
     public Type getType() {
         return type;
     }
 
-    public Category getCategory() {
-        return category;
-    }
-
     public int getPage() {
         return page;
     }
 
-    public String getListMode() {
-        return listMode;
+    public String getKeyword() {
+        return keyword;
     }
 
-    public boolean isInvFilter() {
-        return invFilter;
+    public boolean isInvOnly() {
+        return invOnly;
     }
 
     void setInventory(Inventory inventory) {
