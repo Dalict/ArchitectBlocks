@@ -86,12 +86,20 @@ public class Database {
         String langTable = "CREATE TABLE IF NOT EXISTS ab_lang ("
                 + "code VARCHAR(8) NOT NULL, k VARCHAR(180) NOT NULL, v VARCHAR(255) NOT NULL,"
                 + " PRIMARY KEY(code, k))";
+        // 每视图独立记忆页码 + 恢复目标视图（替代旧的单槽 ab_player_state）
+        String viewPagesTable = "CREATE TABLE IF NOT EXISTS ab_pages ("
+                + "uuid VARCHAR(40) NOT NULL, view VARCHAR(16) NOT NULL, page INT NOT NULL,"
+                + " PRIMARY KEY(uuid, view))";
+        String viewTable = "CREATE TABLE IF NOT EXISTS ab_view ("
+                + "uuid VARCHAR(40) PRIMARY KEY, view VARCHAR(16) NOT NULL, keyword VARCHAR(64))";
         try (Statement st = conn.createStatement()) {
             st.execute(settingsTable);
             st.execute(flagsTable);
             st.execute(pagesTable);
             st.execute(stateTable);
             st.execute(langTable);
+            st.execute(viewPagesTable);
+            st.execute(viewTable);
         }
     }
 
@@ -180,28 +188,28 @@ public class Database {
         }
     }
 
-    /** 读取玩家界面状态：[view, keyword, page]；无记录返回 null（同步读，主键单行查询） */
-    public String[] loadState(UUID uuid) {
+    /** 读取恢复目标视图：[view, keyword]；无记录返回 null */
+    public String[] getView(UUID uuid) {
         if (conn == null) return null;
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT view, keyword, page FROM ab_player_state WHERE uuid = ?")) {
+                "SELECT view, keyword FROM ab_view WHERE uuid = ?")) {
             ps.setString(1, uuid.toString());
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return new String[]{rs.getString(1), rs.getString(2), String.valueOf(rs.getInt(3))};
+                    return new String[]{rs.getString(1), rs.getString(2)};
                 }
                 return null;
             }
         } catch (SQLException e) {
-            plugin.getLogger().warning("界面状态读取失败: " + e.getMessage());
+            plugin.getLogger().warning("视图状态读取失败: " + e.getMessage());
             return null;
         }
     }
 
-    public void saveState(UUID uuid, String view, String keyword, int page) {
-        asyncUpdate("INSERT INTO ab_player_state(uuid, view, keyword, page) VALUES(?, ?, ?, ?)"
-                        + (mysql ? " ON DUPLICATE KEY UPDATE view = VALUES(view), keyword = VALUES(keyword), page = VALUES(page)"
-                                 : " ON CONFLICT(uuid) DO UPDATE SET view = excluded.view, keyword = excluded.keyword, page = excluded.page"),
+    public void setView(UUID uuid, String view, String keyword) {
+        asyncUpdate("INSERT INTO ab_view(uuid, view, keyword) VALUES(?, ?, ?)"
+                        + (mysql ? " ON DUPLICATE KEY UPDATE view = VALUES(view), keyword = VALUES(keyword)"
+                                 : " ON CONFLICT(uuid) DO UPDATE SET view = excluded.view, keyword = excluded.keyword"),
                 ps -> {
                     try {
                         ps.setString(1, uuid.toString());
@@ -211,15 +219,46 @@ public class Database {
                         } else {
                             ps.setString(3, keyword.length() > 64 ? keyword.substring(0, 64) : keyword);
                         }
-                        ps.setInt(4, Math.max(0, page));
                         ps.executeUpdate();
                     } catch (SQLException e) {
-                        plugin.getLogger().warning("界面状态写入失败: " + e.getMessage());
+                        plugin.getLogger().warning("视图状态写入失败: " + e.getMessage());
                     }
                 });
     }
 
-    /** 从数据库读取语言缓存表 */
+    /** 读取某视图的记忆页码（同步读，主键单行查询） */
+    public int getPage(UUID uuid, String view) {
+        if (conn == null) return 0;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT page FROM ab_pages WHERE uuid = ? AND view = ?")) {
+            ps.setString(1, uuid.toString());
+            ps.setString(2, view);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Math.max(0, rs.getInt(1)) : 0;
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("页码读取失败: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    public void setPage(UUID uuid, String view, int page) {
+        asyncUpdate("INSERT INTO ab_pages(uuid, view, page) VALUES(?, ?, ?)"
+                        + (mysql ? " ON DUPLICATE KEY UPDATE page = VALUES(page)"
+                                 : " ON CONFLICT(uuid, view) DO UPDATE SET page = excluded.page"),
+                ps -> {
+                    try {
+                        ps.setString(1, uuid.toString());
+                        ps.setString(2, view);
+                        ps.setInt(3, Math.max(0, page));
+                        ps.executeUpdate();
+                    } catch (SQLException e) {
+                        plugin.getLogger().warning("页码写入失败: " + e.getMessage());
+                    }
+                });
+    }
+
+    /** 从数据库读取语言缓存表 */    /** 从数据库读取语言缓存表 */
     public Map<String, String> loadLang(String code) {
         Map<String, String> out = new HashMap<>();
         if (conn == null) {

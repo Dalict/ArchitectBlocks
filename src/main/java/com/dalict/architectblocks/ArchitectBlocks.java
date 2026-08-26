@@ -213,27 +213,14 @@ public class ArchitectBlocks extends JavaPlugin {
         }
     }
 
-    /** 入口：恢复玩家上次退出的界面（主页/背包视图/搜索结果），管理员界面不记忆 */
+    /** 入口：恢复玩家上次退出的界面（主页/搜索结果，背包视图为临时视图不恢复），管理员界面不记忆 */
     public void openMenu(Player player) {
-        String[] state = db.loadState(player.getUniqueId());
-        if (state == null) {
-            openMainMenu(player, 0, false);
-            return;
-        }
-        String view = state[0];
-        String keyword = state[1];
-        int page;
-        try {
-            page = Integer.parseInt(state[2]);
-        } catch (NumberFormatException e) {
-            page = 0;
-        }
-        if ("inv".equals(view)) {
-            openMainMenu(player, page, true);
-        } else if ("search".equals(view) && keyword != null && !keyword.isEmpty()) {
-            openSearchMenu(player, page, keyword);
+        String[] target = db.getView(player.getUniqueId());
+        if (target != null && "search".equals(target[0])
+                && target[1] != null && !target[1].isEmpty()) {
+            openSearchMenu(player, db.getPage(player.getUniqueId(), "search"), target[1]);
         } else {
-            openMainMenu(player, page, false);
+            openMainMenu(player, db.getPage(player.getUniqueId(), "main"), false);
         }
     }
 
@@ -252,9 +239,10 @@ public class ArchitectBlocks extends JavaPlugin {
         MenuHolder holder = new MenuHolder(MenuHolder.Type.MAIN, page, null, invOnly);
         Inventory inv = Bukkit.createInventory(holder, 54, title);
         holder.setInventory(inv);
+        // 每个视图独立记忆页码；背包视图为临时视图，不作为恢复目标
+        db.setPage(player.getUniqueId(), invOnly ? "inv" : "main", page);
         if (!invOnly) {
-            // 背包视图不写入记忆状态，退出后回到之前的界面
-            db.saveState(player.getUniqueId(), "main", null, page);
+            db.setView(player.getUniqueId(), "main", null);
         }
 
         fillItems(inv, items, page);
@@ -277,7 +265,8 @@ public class ArchitectBlocks extends JavaPlugin {
         MenuHolder holder = new MenuHolder(MenuHolder.Type.SEARCH, page, keyword, false);
         Inventory inv = Bukkit.createInventory(holder, 54, title);
         holder.setInventory(inv);
-        db.saveState(player.getUniqueId(), "search", keyword, page);
+        db.setPage(player.getUniqueId(), "search", page);
+        db.setView(player.getUniqueId(), "search", keyword);
 
         if (items.isEmpty()) {
             player.sendMessage(getMessage("search-no-result").replace("%keyword%", keyword));

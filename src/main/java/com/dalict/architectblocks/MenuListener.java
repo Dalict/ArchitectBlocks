@@ -136,19 +136,11 @@ public class MenuListener implements Listener {
         }
         if (slot == 45) {
             if (holder.isInvOnly()) {
-                // 返回主页：恢复主页记忆页码
-                String[] state = plugin.getDb().loadState(player.getUniqueId());
-                int remembered = 0;
-                if (state != null) {
-                    try {
-                        remembered = Integer.parseInt(state[2]);
-                    } catch (NumberFormatException ignored) {
-                    }
-                }
-                plugin.openMainMenu(player, remembered, false);
+                // 返回主页：恢复主页自己的记忆页码
+                plugin.openMainMenu(player, plugin.getDb().getPage(player.getUniqueId(), "main"), false);
             } else {
-                // 背包视图不记忆，每次从第一页开始
-                plugin.openMainMenu(player, 0, true);
+                // 进入背包视图：恢复背包视图自己的记忆页码
+                plugin.openMainMenu(player, plugin.getDb().getPage(player.getUniqueId(), "inv"), true);
             }
             return;
         }
@@ -191,7 +183,8 @@ public class MenuListener implements Listener {
             return;
         }
         if (slot == 8) {
-            plugin.openMainMenu(player, 0, false);
+            // 返回主界面：恢复主页自己的记忆页码（不再丢失）
+            plugin.openMainMenu(player, plugin.getDb().getPage(player.getUniqueId(), "main"), false);
             return;
         }
         if (slot == 49) {
