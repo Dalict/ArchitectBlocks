@@ -22,6 +22,13 @@ settings:
   # 聊天搜索输入的超时秒数，超时后会话自动失效
   chat-timeout-seconds: 30
 
+# 搜索：可搜索语言（支持多个），启动时自动从官方源下载到 plugins/ArchitectBlocks/lang/
+# 英文ID与英文名始终可搜索；玩家客户端语言会自动追加
+search:
+  languages: [zh_cn]
+  # 下载源: auto(国内镜像BMCLAPI优先，失败回退Mojang官方) / bmclapi / mojang
+  mirror: auto
+
 # 数据库：开关设置、物品黑名单、玩家界面状态
 database:
   # sqlite 或 mysql

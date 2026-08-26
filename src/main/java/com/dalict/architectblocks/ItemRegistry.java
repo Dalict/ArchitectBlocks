@@ -156,12 +156,29 @@ public class ItemRegistry {
         if (langContains("en_us", key, q)) {
             return true;
         }
-        if (langContains("zh_cn", key, q)) {
-            return true;
+        // 配置的搜索语言列表
+        for (String code : plugin.getConfig().getStringList("search.languages")) {
+            String normalized = code == null ? "" : code.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+            if (!normalized.isEmpty() && !"en_us".equals(normalized)
+                    && langContains(normalized, key, q)) {
+                return true;
+            }
         }
-        if (localeCode != null && !localeCode.isEmpty()
-                && !"en_us".equals(localeCode) && !"zh_cn".equals(localeCode)) {
-            return langContains(localeCode, key, q);
+        // 玩家客户端语言（去重后追加）
+        if (localeCode != null) {
+            String normalized = localeCode.toLowerCase(Locale.ROOT).replace('-', '_');
+            boolean already = "en_us".equals(normalized) || normalized.isEmpty();
+            if (!already) {
+                for (String code : plugin.getConfig().getStringList("search.languages")) {
+                    if (normalized.equals(code == null ? "" : code.trim().toLowerCase(Locale.ROOT).replace('-', '_'))) {
+                        already = true;
+                        break;
+                    }
+                }
+            }
+            if (!already && langContains(normalized, key, q)) {
+                return true;
+            }
         }
         return false;
     }

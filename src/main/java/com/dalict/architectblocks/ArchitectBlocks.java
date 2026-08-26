@@ -46,6 +46,8 @@ public class ArchitectBlocks extends JavaPlugin {
         lang = new LangManager(this);
         itemRegistry = new ItemRegistry(this);
         itemRegistry.reload();
+        // 异步下载配置的搜索语言文件（官方源，BMCLAPI 优先回退 Mojang）
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> lang.downloadConfiguredLanguages());
         chatInput = new ChatInputManager(this);
         Bukkit.getPluginManager().registerEvents(new MenuListener(this), this);
         Bukkit.getPluginManager().registerEvents(chatInput, this);
