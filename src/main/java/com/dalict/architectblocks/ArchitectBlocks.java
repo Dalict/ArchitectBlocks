@@ -86,7 +86,13 @@ public class ArchitectBlocks extends JavaPlugin {
                 sender.sendMessage(getMessage("no-permission"));
                 return true;
             }
+            // reload 时补生成缺失的配置文件（删除配置后无需重启即可恢复）
+            if (!new File(getDataFolder(), "config.yml").isFile()) {
+                saveDefaultConfig();
+                sender.sendMessage(color("&aconfig.yml 不存在，已重新生成默认配置。"));
+            }
             reloadConfig();
+            upgradeConfig();
             playersConfig.reload();
             itemRegistry.reload();
             sendColored(sender, getMessage("reloaded"));
@@ -773,13 +779,19 @@ public class ArchitectBlocks extends JavaPlugin {
         // 直接 getInt 会把默认版本号当成用户配置导致升级永远不触发
         File configFile = new File(getDataFolder(), "config.yml");
         int version = 1;
+        boolean keyMissing = false;
         if (configFile.isFile()) {
             org.bukkit.configuration.file.YamlConfiguration onDisk =
                     org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(configFile);
             version = onDisk.getInt("config-version", 1);
+            // 防呆：版本号可能已达标但关键键缺失（历史写入异常等），同样强制合并
+            keyMissing = onDisk.getString("messages.title-main") == null;
         }
-        if (version >= CONFIG_VERSION) {
+        if (version >= CONFIG_VERSION && !keyMissing) {
             return;
+        }
+        if (keyMissing) {
+            getLogger().warning("检测到配置缺少关键键，强制执行合并升级");
         }
         getConfig().options().copyDefaults(true);
         getConfig().set("config-version", CONFIG_VERSION);

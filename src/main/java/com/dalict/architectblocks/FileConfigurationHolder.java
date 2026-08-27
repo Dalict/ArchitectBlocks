@@ -35,6 +35,13 @@ public class FileConfigurationHolder {
 
     public void reload() {
         file = new File(plugin.getDataFolder(), fileName);
+        if (!file.isFile()) {
+            config = YamlConfiguration.loadConfiguration(file);
+            config.options().header(header);
+            config.set(defaultKey, new ArrayList<String>());
+            save();
+            return;
+        }
         config = YamlConfiguration.loadConfiguration(file);
         config.options().header(header);
     }
