@@ -89,6 +89,7 @@ gui:
     mode-toggle: '&8[ &e名单模式 &8]'
     trash: '&8[ &6垃圾桶 &8]'
 
+messages:
   help:
     - '&8&m----------&r &8[&a ArchitectBlocks 帮助 &8]&8&m----------'
     - '&e/mats &7- 打开物品菜单（也可用 /materials、/cailiao）'
