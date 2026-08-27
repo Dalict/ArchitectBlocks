@@ -14,6 +14,11 @@ access:
   # 启用玩家名单（关闭后名单失效，仅剩权限节点判定）
   use-player-list: true
 
+# 内置快捷物品：授权玩家加入时自动发放，点击打开菜单（不可放置）
+quick-item:
+  enabled: true
+  material: GRASS_BLOCK
+
 settings:
   # 每次点击获取的物品数量 (1-64)
   click-amount: 64
@@ -67,6 +72,10 @@ gui:
     source-button: BOOKSHELF
     filter-button: HOPPER
     trash-button: LAVA_BUCKET
+    flight-menu-button: FEATHER
+    flight-toggle: FEATHER
+    fly-speed-button: SUGAR
+    night-vision-toggle: ENDER_EYE
   names:
     close: '&8[ &c关闭 &8]'
     back: '&8[ &e返回 &8]'
@@ -84,6 +93,7 @@ gui:
     upload-list: '&8[ &b上传物品管理 &8]'
     source-toggle: '&8[ &6物品来源 &8]'
     mode-toggle: '&8[ &e名单模式 &8]'
+    flight-menu: '&8[ &b飞行设置 &8]'
 
 messages:
   title-main: '&8物品 %page%/%max%'
@@ -146,6 +156,32 @@ messages:
   filter-name: '&8[ &e只显示背包已有 '
   filter-on: '&a开 &8]'
   filter-off: '&c关 &8]'
+  flight-lore: '&7打开飞行设置'
+  title-flight: '&8飞行设置'
+  flight-on-name: '&a[ 开启飞行 ]'
+  flight-off-name: '&c[ 关闭飞行 ]'
+  flight-on-state: '&7当前飞行: &a已开启'
+  flight-off-state: '&7当前飞行: &c未开启'
+  flight-toggled-on: '&a飞行已开启。'
+  flight-toggled-off: '&c飞行已关闭。'
+  speed-1-name: '&f速度 1 档 (正常)'
+  speed-2-name: '&e速度 2 档 (较快)'
+  speed-3-name: '&c速度 3 档 (最快)'
+  speed-current: '&7当前使用中'
+  speed-select: '&e点击切换到该档位'
+  speed-set: '&a飞行速度已切换为: &f%speed%'
+  nv-on-name: '&d[ 永久夜视: 已开启 ]'
+  nv-off-name: '&8[ 永久夜视: 未开启 ]'
+  nv-on-state: '&7当前夜视: &a开启中'
+  nv-off-state: '&7当前夜视: &c关闭'
+  nv-toggled-on: '&a永久夜视效果已开启。'
+  nv-toggled-off: '&c永久夜视效果已关闭。'
+  title-access-list: '&8授权玩家管理 %page%/%max%'
+  access-list-empty: '&7暂无授权玩家，用 /mats add 玩家名 [天数] 授权。'
+  access-expire-line: '&7剩余时间: &f%expire%'
+  expire-permanent: '永久'
+  expire-days: '&f%days% 天'
+  expire-none: '未授权'
   trash-lore: '&7放入物品后关闭界面即销毁'
   access-added: '&a已将 &f%player% &a加入可用玩家名单。'
   access-removed: '&a已将 &f%player% &a移出可用玩家名单。'
