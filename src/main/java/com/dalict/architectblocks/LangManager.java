@@ -232,12 +232,25 @@ public class LangManager {
         if (objects == null) {
             throw new IllegalStateException("资源索引格式异常");
         }
-        // 4) 逐个语言文件按哈希下载
+        // 4) 逐个语言文件按哈希下载；资源索引缺失的（如 en_us 为客户端内置默认语言）
+        //    从客户端 jar 流式抽取（不保存整个 jar）
+        java.util.List<String> missing = new ArrayList<>();
+        for (String code : langs) {
+            if (!objects.containsKey("minecraft/lang/" + code + ".json")) {
+                missing.add(code);
+            }
+        }
+        if (!missing.isEmpty()) {
+            try {
+                extractFromClientJar(client, version, missing, dir, mirror);
+            } catch (Exception e) {
+                plugin.getLogger().warning("从客户端 jar 抽取语言失败: " + e.getMessage());
+            }
+        }
         boolean any = false;
         for (String code : langs) {
             Map<?, ?> entry = (Map<?, ?>) objects.get("minecraft/lang/" + code + ".json");
             if (entry == null) {
-                plugin.getLogger().warning("官方资源索引中不存在语言: " + code);
                 continue;
             }
             String hash = String.valueOf(entry.get("hash"));
@@ -265,6 +278,68 @@ public class LangManager {
         }
         if (!any) {
             throw new IllegalStateException("未下载到任何语言文件");
+        }
+    }
+
+    /** 从客户端 jar 流式抽取语言文件（用于 en_us 等不在资源索引中的语言） */
+    private void extractFromClientJar(HttpClient client, Map<String, Object> version,
+                                      List<String> codes, Path dir, String mirror) throws Exception {
+        String bmclapi = "https://bmclapi2.bangbang93.com";
+        boolean isBmclapi = "bmclapi".equals(mirror);
+        String jarUrl;
+        if (isBmclapi) {
+            jarUrl = bmclapi + "/version/" + detectMcVersion() + "/client";
+        } else {
+            Map<?, ?> clientJar = (Map<?, ?>) ((Map<?, ?>) version.get("downloads")).get("client");
+            jarUrl = String.valueOf(clientJar.get("url"));
+        }
+        if (jarUrl == null || "null".equals(jarUrl)) {
+            throw new IllegalStateException("客户端 jar 地址解析失败");
+        }
+        HttpRequest request = HttpRequest.newBuilder(URI.create(jarUrl))
+                .timeout(Duration.ofMinutes(5))
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("客户端 jar 下载失败 HTTP " + response.statusCode());
+        }
+        java.util.Set<String> wanted = new HashSet<>();
+        for (String code : codes) {
+            wanted.add("assets/minecraft/lang/" + code + ".json");
+        }
+        try (java.util.jar.JarInputStream jarIn = new java.util.jar.JarInputStream(response.body())) {
+            java.util.jar.JarEntry entry;
+            byte[] buffer = new byte[8192];
+            while ((entry = jarIn.getNextJarEntry()) != null) {
+                if (!wanted.contains(entry.getName())) {
+                    // 仍需读完当前条目以推进流
+                    while (jarIn.read(buffer) > 0) {
+                        // 跳过
+                    }
+                    continue;
+                }
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                int n;
+                while ((n = jarIn.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                }
+                if (out.size() > 0) {
+                    String code = entry.getName()
+                            .substring("assets/minecraft/lang/".length())
+                            .replace(".json", "");
+                    Files.write(dir.resolve(code + ".json"), out.toByteArray());
+                    plugin.getLogger().info("已从客户端 jar 抽取语言文件: " + code + ".json ("
+                            + out.size() / 1024 + " KB)");
+                    try {
+                        Map<String, String> parsed = gson.fromJson(
+                                new String(out.toByteArray(), StandardCharsets.UTF_8),
+                                new TypeToken<Map<String, String>>() { }.getType());
+                        plugin.getDb().saveLang(code, parsed);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
         }
     }
 

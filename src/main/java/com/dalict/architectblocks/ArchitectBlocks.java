@@ -769,11 +769,20 @@ public class ArchitectBlocks extends JavaPlugin {
      * 补充到用户配置（用户已有设置全部保留），然后写回并重载。
      */
     private void upgradeConfig() {
-        int version = getConfig().getInt("config-version", 1);
+        // 必须从磁盘文件读版本：getConfig() 会并入插件内置默认值，
+        // 直接 getInt 会把默认版本号当成用户配置导致升级永远不触发
+        File configFile = new File(getDataFolder(), "config.yml");
+        int version = 1;
+        if (configFile.isFile()) {
+            org.bukkit.configuration.file.YamlConfiguration onDisk =
+                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(configFile);
+            version = onDisk.getInt("config-version", 1);
+        }
         if (version >= CONFIG_VERSION) {
             return;
         }
         getConfig().options().copyDefaults(true);
+        getConfig().set("config-version", CONFIG_VERSION);
         saveConfig();
         reloadConfig();
         getLogger().info("配置文件已从 v" + version + " 升级到 v" + CONFIG_VERSION
