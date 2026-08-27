@@ -1,5 +1,5 @@
 name: ArchitectBlocks
-version: b1.16.0
+version: b1.17.0
 main: com.dalict.architectblocks.ArchitectBlocks
 api-version: '1.21'
 authors: [Dalict, ZTF3]

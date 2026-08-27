@@ -1042,21 +1042,45 @@ public class ArchitectBlocks extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> result = new ArrayList<>();
+        String partial = args.length > 0 ? args[args.length - 1].toLowerCase() : "";
         if (args.length == 1) {
             List<String> subs = new ArrayList<>(Arrays.asList("help", "reload", "trash"));
             if (sender.hasPermission(PERM_ADMIN)) {
-                subs.addAll(Arrays.asList("admin", "add", "remove"));
+                subs.addAll(Arrays.asList("admin", "add", "remove", "list"));
             }
             for (String sub : subs) {
-                if (sub.startsWith(args[0].toLowerCase())) {
+                if (sub.startsWith(partial)) {
                     result.add(sub);
                 }
             }
         } else if (args.length == 2 && sender.hasPermission(PERM_ADMIN)
-                && (args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
+                && args[0].equalsIgnoreCase("add")) {
+            // add：补全在线玩家名（已有授权的排前，方便续期）
             for (Player online : Bukkit.getOnlinePlayers()) {
-                if (online.getName().toLowerCase().startsWith(args[1].toLowerCase())) {
+                if (online.getName().toLowerCase().startsWith(partial)) {
                     result.add(online.getName());
+                }
+            }
+            for (String[] rec : db.loadAllAccess()) {
+                if (rec[0].toLowerCase().startsWith(partial)
+                        && result.stream().noneMatch(n -> n.equalsIgnoreCase(rec[0]))) {
+                    result.add(rec[0]);
+                }
+            }
+        } else if (args.length == 2 && sender.hasPermission(PERM_ADMIN)
+                && args[0].equalsIgnoreCase("remove")) {
+            // remove：补全已授权玩家名
+            for (String[] rec : db.loadAllAccess()) {
+                if (rec[0].toLowerCase().startsWith(partial)) {
+                    result.add(rec[0]);
+                }
+            }
+        } else if (args.length == 3 && sender.hasPermission(PERM_ADMIN)
+                && args[0].equalsIgnoreCase("add")) {
+            // add 的第三参：时长单位提示
+            for (String unit : Arrays.asList("30d", "7d", "1d", "12h", "1h", "30m", "10m", "永久")) {
+                if (unit.toLowerCase().startsWith(partial)) {
+                    result.add(unit);
                 }
             }
         }
