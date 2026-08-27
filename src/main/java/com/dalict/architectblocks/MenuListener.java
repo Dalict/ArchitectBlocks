@@ -94,12 +94,13 @@ public class MenuListener implements Listener {
                 } else {
                     player.sendMessage(plugin.getMessage("upload-duplicate"));
                 }
-            } else if ("white".equals(mode)) {
-                plugin.getDb().setFlag(clicked.getType(), MaterialFlag.WHITE);
-                player.sendMessage(plugin.getMessage("flag-set-white").replace("%item%", clicked.getType().name()));
             } else {
-                plugin.getDb().setFlag(clicked.getType(), MaterialFlag.BLACK);
-                player.sendMessage(plugin.getMessage("flag-set-black").replace("%item%", clicked.getType().name()));
+                // 名单页跟随当前模式：存入ID到对应名单库
+                boolean white = plugin.getItemRegistry().isWhiteMode();
+                plugin.getDb().addToList(clicked.getType(), white);
+                player.sendMessage(plugin.getMessage("list-added")
+                        .replace("%item%", clicked.getType().name())
+                        .replace("%mode%", plugin.modeName(white)));
             }
             plugin.openAdminList(player, holder.getPage(), mode, holder.isInvFilter());
             return;
@@ -335,11 +336,8 @@ public class MenuListener implements Listener {
             return;
         }
         if (slot == 12) {
-            plugin.openAdminList(player, 0, "black", false);
-            return;
-        }
-        if (slot == 13) {
-            plugin.openAdminList(player, 0, "white", false);
+            // 名单管理：打开当前名单模式的名单库
+            plugin.openAdminList(player, 0, "list", false);
             return;
         }
         if (slot == 14) {
@@ -408,8 +406,12 @@ public class MenuListener implements Listener {
             player.sendMessage(plugin.getMessage("upload-removed")
                     .replace("%item%", entry.customName != null ? entry.customName : entry.material.name()));
         } else {
-            plugin.getDb().setFlag(entry.material, null);
-            player.sendMessage(plugin.getMessage("flag-cleared").replace("%item%", entry.material.name()));
+            // 删除ID即移出当前名单库
+            boolean white = plugin.getItemRegistry().isWhiteMode();
+            plugin.getDb().removeFromList(entry.material, white);
+            player.sendMessage(plugin.getMessage("list-removed")
+                    .replace("%item%", entry.material.name())
+                    .replace("%mode%", plugin.modeName(white)));
         }
         plugin.openAdminList(player, page, mode, holder.isInvFilter());
     }

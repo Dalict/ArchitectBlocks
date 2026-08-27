@@ -1,7 +1,7 @@
 # ArchitectBlocks 配置
 # 作者: Dalict
 # 物品列表随服务器版本自动更新
-# 开关(刷怪蛋/管理员物品)、物品黑名单、玩家界面状态存储在数据库中，游戏内 /mats admin 实时管理
+# 开关、名单、玩家界面状态、自定义物品存储在数据库中，游戏内 /mats admin 实时管理
 
 # 配置版本号（插件自动升级配置时使用，请勿手动修改）
 config-version: 3
@@ -25,13 +25,13 @@ settings:
   chat-timeout-seconds: 30
 
 # 搜索：可搜索语言（支持多个），启动时自动从官方源下载到 plugins/ArchitectBlocks/lang/
-# 英文ID、英文名(en_us自动下载)始终可搜索；语言文件不打包进插件，随服务器版本自动更新；玩家客户端语言会自动追加
+# 英文ID、英文名(en_us自动下载)始终可搜索；语言文件不打包进插件，随服务器版本自动更新
 search:
   languages: [zh_cn]
   # 下载源: auto(国内镜像BMCLAPI优先，失败回退Mojang官方) / bmclapi / mojang
   mirror: auto
 
-# 数据库：开关设置、物品黑名单、玩家界面状态
+# 数据库：开关设置、黑白名单、玩家界面状态、语言缓存、自定义物品
 database:
   # sqlite 或 mysql
   type: sqlite
@@ -46,7 +46,6 @@ database:
 # GUI 界面配置
 # 主界面布局: 0 关闭 | 1 管理员设置(仅管理员可见) | 4 搜索时显示关键词 | 8 搜索或返回
 # 底排: 45 背包已有切换 | 48 上一页 | 49 选择页码 | 50 下一页 | 53 垃圾桶
-# 物品区: 9-44
 gui:
   use-pane: true
   items:
@@ -66,7 +65,6 @@ gui:
     whitelist-button: WHITE_WOOL
     upload-button: CHEST
     source-button: BOOKSHELF
-    mode-button: LEVER
     filter-button: HOPPER
     trash-button: LAVA_BUCKET
   names:
@@ -82,64 +80,20 @@ gui:
     next: '&8[ &f下一页 &8]'
     eggs-toggle: '&8[ &d允许刷怪蛋 &8]'
     admin-items-toggle: '&8[ &4允许管理员物品 &8]'
-    blacklist-list: '&8[ &c物品黑名单列表 &8]'
-    whitelist-list: '&8[ &f物品白名单列表 &8]'
+    list-manage: '&8[ &d名单管理 &8]'
     upload-list: '&8[ &b上传物品管理 &8]'
     source-toggle: '&8[ &6物品来源 &8]'
     mode-toggle: '&8[ &e名单模式 &8]'
-    trash: '&8[ &6垃圾桶 &8]'
 
 messages:
-  help:
-    - '&8&m----------&r &8[&a ArchitectBlocks 帮助 &8]&8&m----------'
-    - '&e/mats &7- 打开物品菜单（也可用 /materials、/cailiao）'
-    - '&e/mats trash &7- 打开垃圾桶（放入即销毁）'
-    - '&e/mats help &7- 显示本帮助'
-    - '&e/mats admin &7- 管理员设置界面 &8(需要 admin 权限)'
-    - '&e/mats add|remove <玩家名> &7- 管理可用玩家名单 &8(需要 admin 权限)'
-    - '&e/mats reload &7- 重载配置 &8(需要 admin 权限)'
-    - '&7菜单内: &f0&7关闭 &f8&7搜索/返回 &f45&7背包过滤 &f48/50&7翻页 &f49&7选页 &f53&7垃圾桶'
-    - '&8&m------------------------------------------------'
-  title-admin-list-white: '&8白名单管理 %page%/%max% %filter%'
-  title-admin-upload: '&8上传物品管理 %page%/%max% %filter%'
-  whitelist-list-lore: '&7ⓘ 添加: 保持界面打开，点击背包中的物品
-&7ⓘ 移除: 点击列表中的物品
-&7白名单模式下仅列表内物品可见'
-  upload-list-lore: '&7ⓘ 上传: 保持界面打开，点击背包中的物品
-&7ⓘ 删除: 点击列表中的物品
-&7上传的物品完整保留NBT，不受名单控制'
-  upload-list-empty: '&7暂无上传物品，点击背包中的物品即可上传。'
-  uploaded: '&a已上传物品: &f%item%'
-  upload-duplicate: '&e该物品（含NBT）已存在，未重复上传。'
-  upload-removed: '&7已删除上传物品: &f%item%'
-  upload-click-remove: '&e点击删除该上传物品'
-  custom-item-tag: '&b★ 自定义物品 (含NBT)'
-  custom-name-line: '&7名称: &f%name%'
-  custom-get-lore: '&a点击获取 &e%amount% &a个(原样)'
-  state-white: '&7状态: &a白名单 (始终显示)'
-  flag-set-white: '&a%item% 已加入白名单'
-  source-current: '&7当前: &f'
-  source-both: '原版物品+上传物品'
-  source-vanilla: '仅原版物品'
-  source-custom: '仅上传物品'
-  source-toggled: '&a物品来源已切换为: &f'
-  mode-current: '&7当前: &f'
-  mode-black: '黑名单模式 (未标记的可见)'
-  mode-white: '白名单模式 (仅白名单可见)'
-  mode-toggled: '&a名单模式已切换为: &f'
-  click-cycle: '&e点击切换'
-  filter-name: '&8[ &e只显示背包已有 '
-  filter-on: '&a开 &8]'
-  filter-off: '&c关 &8]'
-  # 标题（可用 %page% %max%；搜索另支持 %keyword%）
   title-main: '&8物品 %page%/%max%'
   title-inv: '&8背包物品 %page%/%max%'
   title-search: '&8搜索: %keyword% %page%/%max%'
   title-page-select: '&8选择页码 %page%/%max%'
   title-trash: '&8垃圾桶'
   title-admin: '&8管理设置'
-  title-admin-list: '&8黑名单管理 %page%/%max%'
-  # 物品 lore，可用 %amount%
+  title-admin-list: '&8%mode%名单 %page%/%max% %filter%'
+  title-admin-upload: '&8上传物品管理 %page%/%max% %filter%'
   item-lore: '&a点击获取 &e%amount% 个'
   inv-lore: '&7把想要的物品放进背包即可筛出'
   search-lore-line1: '&7点击后在聊天栏输入关键词'
@@ -157,26 +111,55 @@ messages:
   page-select-lore: '&e点击跳转到第 %page% 页'
   page-select-button-lore: '&7跳转到指定页码'
   give-cooldown: '&c操作太快，请稍候...'
-  # 管理界面
   state-enabled: '&7当前: &a开启'
   state-disabled: '&7当前: &c关闭'
-  state-black: '&7状态: &c黑名单 (隐藏)'
   click-toggle: '&e点击切换开/关'
+  click-cycle: '&e点击切换'
   eggs-toggle-lore: '&7关闭后所有刷怪蛋不可见'
   eggs-toggled: '&a允许刷怪蛋 已设置为 %state%'
   admin-items-lore: '&7开启后创造专属的管理员物品才显示'
   admin-items-toggled: '&a允许管理员物品 已设置为 %state%'
-  blacklist-list-lore: '&7ⓘ 添加: 保持界面打开，点击背包中的物品
-&7ⓘ 移除: 点击列表中的物品'
-  list-click-remove: '&e点击移出黑名单'
-  list-empty: '&7黑名单为空，点击背包中的物品即可添加。'
-  flag-set-black: '&c%item% 已加入黑名单'
-  flag-cleared: '&7%item% 已清除标记'
+  list-manage-lore: '&7管理当前名单模式对应的名单库'
+  list-added: '&a已将 &f%item% &a存入%mode%（库）'
+  list-removed: '&7已将 &f%item% &7移出%mode%（库）'
+  list-state-line: '&7已存入名单库'
+  list-click-remove: '&e点击移出名单'
+  list-empty: '&7当前名单库为空，点击背包中的物品即可存入ID。'
+  upload-list-lore: '&7ⓘ 上传: 保持界面打开，点击背包中的物品'
+  upload-click-remove: '&e点击删除该上传物品'
+  upload-list-empty: '&7暂无上传物品，点击背包中的物品即可上传。'
+  uploaded: '&a已上传物品: &f%item%'
+  upload-duplicate: '&e该物品（含NBT）已存在，未重复上传。'
+  upload-removed: '&7已删除上传物品: &f%item%'
+  custom-item-tag: '&b★ 自定义物品 (含NBT)'
+  custom-name-line: '&7名称: &f%name%'
+  custom-get-lore: '&a点击获取'
+  source-current: '&7当前: &f'
+  source-both: '原版物品+上传物品'
+  source-vanilla: '仅原版物品'
+  source-custom: '仅上传物品'
+  source-toggled: '&a物品来源已切换为: &f'
+  mode-current: '&7当前: &f'
+  mode-black: '黑名单模式 (未标记的可见)'
+  mode-white: '白名单模式 (仅白名单可见)'
+  mode-toggled: '&a名单模式已切换为: &f'
+  filter-name: '&8[ &e只显示背包已有 '
+  filter-on: '&a开 &8]'
+  filter-off: '&c关 &8]'
   trash-lore: '&7放入物品后关闭界面即销毁'
   access-added: '&a已将 &f%player% &a加入可用玩家名单。'
   access-removed: '&a已将 &f%player% &a移出可用玩家名单。'
   access-duplicate: '&e%player% 已在名单中。'
   access-not-in-list: '&e%player% 不在名单中。'
-
   no-permission: '&c你没有权限使用该菜单！'
   reloaded: '&aArchitectBlocks 配置已重载！'
+  help:
+    - '&8&m----------&r &8[&a ArchitectBlocks 帮助 &8]&8&m----------'
+    - '&e/mats &7- 打开物品菜单（也可用 /materials、/cailiao）'
+    - '&e/mats trash &7- 打开垃圾桶（放入即销毁）'
+    - '&e/mats help &7- 显示本帮助'
+    - '&e/mats admin &7- 管理员设置界面 &8(需要 admin 权限)'
+    - '&e/mats add|remove <玩家名> &7- 管理可用玩家名单 &8(需要 admin 权限)'
+    - '&e/mats reload &7- 重载配置 &8(需要 admin 权限)'
+    - '&7菜单内: &f0&7关闭 &f8&7搜索/返回 &f45&7背包过滤 &f48/50&7翻页 &f49&7选页 &f53&7垃圾桶'
+    - '&8&m------------------------------------------------'

@@ -109,17 +109,18 @@ public class ItemRegistry {
         return ADMIN_ITEM_NAMES.contains(mat.name());
     }
 
-    /** 原版物品可见性：白名单模式下仅白名单可见；黑名单模式下 黑名单隐藏 > 白名单显示 > 各开关 */
+    /**
+     * 原版物品可见性：
+     * 白名单模式 —— 仅白名单库内的物品可见（未存入ID的无法获取）
+     * 黑名单模式 —— 黑名单库内的物品隐藏（存入ID的无法获取），其余走各开关
+     * 上传的自定义物品不受名单控制
+     */
     public boolean isVisible(Material mat) {
-        MaterialFlag flag = plugin.getDb().getFlag(mat);
         if (isWhiteMode()) {
-            return flag == MaterialFlag.WHITE;
+            return plugin.getDb().getWhitelist().contains(mat);
         }
-        if (flag == MaterialFlag.BLACK) {
+        if (plugin.getDb().getBlacklist().contains(mat)) {
             return false;
-        }
-        if (flag == MaterialFlag.WHITE) {
-            return true;
         }
         if (isAdminItem(mat)) {
             return isAllowAdminItems();

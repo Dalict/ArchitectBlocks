@@ -356,12 +356,13 @@ public class ArchitectBlocks extends JavaPlugin {
                 stateLine(itemRegistry.isAllowAdminItems()),
                 color(getMessage("admin-items-lore")),
                 color(getMessage("click-toggle"))));
-        inv.setItem(12, icon(material("blacklist-button", Material.BLACK_WOOL),
-                color(getGuiConfigString("names.blacklist-list", "&8[ &c物品黑名单列表 &8]")),
-                color(getMessage("blacklist-list-lore"))));
-        inv.setItem(13, icon(material("whitelist-button", Material.WHITE_WOOL),
-                color(getGuiConfigString("names.whitelist-list", "&8[ &f物品白名单列表 &8]")),
-                color(getMessage("whitelist-list-lore"))));
+        // 名单管理：单一入口，图标与说明跟随当前名单模式变色
+        boolean white = itemRegistry.isWhiteMode();
+        inv.setItem(12, icon(white ? material("whitelist-button", Material.WHITE_WOOL)
+                        : material("blacklist-button", Material.BLACK_WOOL),
+                color(getGuiConfigString("names.list-manage", "&8[ &d名单管理 &8]")),
+                color(getMessage("mode-current") + modeName(white)),
+                color(getMessage("list-manage-lore"))));
         inv.setItem(14, icon(material("upload-button", Material.CHEST),
                 color(getGuiConfigString("names.upload-list", "&8[ &b上传物品管理 &8]")),
                 color(getMessage("upload-list-lore"))));
@@ -369,9 +370,9 @@ public class ArchitectBlocks extends JavaPlugin {
                 color(getGuiConfigString("names.source-toggle", "&8[ &6物品来源 &8]")),
                 color(getMessage("source-current") + sourceName(itemRegistry.getItemSource())),
                 color(getMessage("click-cycle"))));
-        inv.setItem(16, icon(material("mode-button", Material.LEVER),
+        inv.setItem(16, icon(white ? Material.WHITE_WOOL : Material.BLACK_WOOL,
                 color(getGuiConfigString("names.mode-toggle", "&8[ &e名单模式 &8]")),
-                color(getMessage("mode-current") + modeName(itemRegistry.isWhiteMode())),
+                color(getMessage("mode-current") + modeName(white)),
                 color(getMessage("click-cycle"))));
         inv.setItem(22, icon(material("close-button", Material.BARRIER),
                 color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
@@ -392,8 +393,9 @@ public class ArchitectBlocks extends JavaPlugin {
     }
 
     /**
-     * 名单/上传管理页（black / white / upload 三种模式）。
-     * 点击列表中的物品 = 移出对应名单/删除上传；保持界面打开点击背包物品 = 加入名单/上传。
+     * 名单/上传管理页。
+     * 名单页跟随当前名单模式（黑名单模式管黑名单库，白名单模式管白名单库）：
+     * 点击背包物品 = 存入ID到当前名单库；点击列表物品 = 删除ID移出名单。
      */
     public void openAdminList(Player player, int page, String mode, boolean invFilter) {
         List<ItemEntry> items = buildAdminListEntries(player, mode, invFilter);
@@ -401,9 +403,8 @@ public class ArchitectBlocks extends JavaPlugin {
         if (page < 0) page = 0;
         if (page >= pageCount) page = pageCount - 1;
 
-        String titleKey = "white".equals(mode) ? "title-admin-list-white"
-                : "upload".equals(mode) ? "title-admin-upload" : "title-admin-list";
-        String title = color(getMessage(titleKey)
+        String title = color(getMessage("upload".equals(mode) ? "title-admin-upload" : "title-admin-list")
+                .replace("%mode%", modeName(itemRegistry.isWhiteMode()))
                 .replace("%page%", String.valueOf(page + 1))
                 .replace("%max%", String.valueOf(pageCount))
                 .replace("%filter%", invFilter ? getMessage("filter-on") : getMessage("filter-off")));
@@ -424,14 +425,15 @@ public class ArchitectBlocks extends JavaPlugin {
                 if (entry.customName != null) {
                     lore.add(color(getMessage("custom-name-line").replace("%name%", entry.customName)));
                 }
-            } else if ("white".equals(mode)) {
-                lore.add(getMessage("state-white"));
-            } else {
-                lore.add(getMessage("state-black"));
+            } else if (!"upload".equals(mode)) {
+                lore.add(color(getMessage("list-state-line")));
             }
             lore.add("");
             lore.add(color(getMessage("upload".equals(mode) ? "upload-click-remove" : "list-click-remove")));
-            inv.setItem(ITEM_SLOT_START + i, entryIcon(entry, lore));
+            // 自定义物品用原物克隆展示，原版物品用普通图标（修复原版条目 NPE）
+            inv.setItem(ITEM_SLOT_START + i, entry.isCustom()
+                    ? entryIcon(entry, lore)
+                    : icon(entry.material, null, lore.toArray(new String[0])));
         }
 
         inv.setItem(0, icon(material("close-button", Material.BARRIER),
@@ -457,16 +459,17 @@ public class ArchitectBlocks extends JavaPlugin {
         if ("upload".equals(mode)) {
             items.addAll(itemRegistry.getCustoms());
         } else {
-            MaterialFlag want = "white".equals(mode) ? MaterialFlag.WHITE : MaterialFlag.BLACK;
-            for (Material mat : Material.values()) {
-                if (mat.isItem() && !mat.isAir() && db.getFlag(mat) == want) {
-                    items.add(ItemEntry.vanilla(mat));
-                }
+            // 名单页跟随当前名单模式读取对应名单库
+            java.util.Set<Material> list = itemRegistry.isWhiteMode()
+                    ? db.getWhitelist() : db.getBlacklist();
+            List<Material> sorted = new ArrayList<>(list);
+            sorted.sort((a, b) -> a.name().compareTo(b.name()));
+            for (Material mat : sorted) {
+                items.add(ItemEntry.vanilla(mat));
             }
-            items.sort((a, b) -> a.material.name().compareTo(b.material.name()));
         }
         if (invFilter) {
-            Set<Material> owned = new LinkedHashSet<>();
+            java.util.Set<Material> owned = new java.util.LinkedHashSet<>();
             for (ItemStack item : player.getInventory().getContents()) {
                 if (item != null && !item.getType().isAir()) {
                     owned.add(item.getType());
@@ -474,18 +477,6 @@ public class ArchitectBlocks extends JavaPlugin {
             }
             items.removeIf(e -> !owned.contains(e.material));
         }
-        return items;
-    }
-
-    /** 全量枚举中收集黑名单物品（字母序） */
-    public List<Material> collectBlacklisted() {
-        List<Material> items = new ArrayList<>();
-        for (Material mat : Material.values()) {
-            if (mat.isItem() && !mat.isAir() && db.getFlag(mat) == MaterialFlag.BLACK) {
-                items.add(mat);
-            }
-        }
-        items.sort((a, b) -> a.name().compareTo(b.name()));
         return items;
     }
 

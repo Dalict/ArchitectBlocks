@@ -11,9 +11,11 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -27,7 +29,8 @@ public class Database {
     private Connection conn;
     private boolean mysql = false;
     private final Map<String, String> settingsCache = new HashMap<>();
-    private final Map<Material, MaterialFlag> flagCache = new HashMap<>();
+    private final Set<Material> blacklistCache = new HashSet<>();
+    private final Set<Material> whitelistCache = new HashSet<>();
 
     public Database(ArchitectBlocks plugin) {
         this.plugin = plugin;
@@ -57,7 +60,7 @@ public class Database {
             }
             createTables();
             loadSettings();
-            loadFlags();
+            loadLists();
             plugin.getLogger().info("数据库已连接 (" + (mysql ? "MySQL" : "SQLite") + ")");
             return true;
         } catch (SQLException e) {
@@ -79,6 +82,11 @@ public class Database {
                 + "k VARCHAR(64) PRIMARY KEY, v VARCHAR(255))";
         String flagsTable = "CREATE TABLE IF NOT EXISTS ab_item_flags ("
                 + "material VARCHAR(64) PRIMARY KEY, flag VARCHAR(8))";
+        // 黑名单与白名单：独立两个存储库，只存物品ID，存入即在名单，删除即移出
+        String blacklistTable = "CREATE TABLE IF NOT EXISTS ab_blacklist ("
+                + "material VARCHAR(64) PRIMARY KEY)";
+        String whitelistTable = "CREATE TABLE IF NOT EXISTS ab_whitelist ("
+                + "material VARCHAR(64) PRIMARY KEY)";
         String pagesTable = "CREATE TABLE IF NOT EXISTS ab_player_pages ("
                 + "uuid VARCHAR(40) NOT NULL, category VARCHAR(40) NOT NULL, page INT NOT NULL,"
                 + " PRIMARY KEY(uuid, category))";
@@ -101,6 +109,19 @@ public class Database {
         try (Statement st = conn.createStatement()) {
             st.execute(settingsTable);
             st.execute(flagsTable);
+            st.execute(blacklistTable);
+            st.execute(whitelistTable);
+            // 旧 ab_item_flags 数据迁移进独立名单表（只迁移一次，失败忽略）
+            try (Statement st2 = conn.createStatement()) {
+                st2.executeUpdate("INSERT OR IGNORE INTO ab_blacklist(material) SELECT material FROM ab_item_flags WHERE flag = 'BLACK'");
+                st2.executeUpdate("INSERT OR IGNORE INTO ab_whitelist(material) SELECT material FROM ab_item_flags WHERE flag = 'WHITE'");
+            } catch (SQLException ignored) {
+                try (Statement st2 = conn.createStatement()) {
+                    st2.executeUpdate("INSERT IGNORE INTO ab_blacklist(material) SELECT material FROM ab_item_flags WHERE flag = 'BLACK'");
+                    st2.executeUpdate("INSERT IGNORE INTO ab_whitelist(material) SELECT material FROM ab_item_flags WHERE flag = 'WHITE'");
+                } catch (SQLException ignored2) {
+                }
+            }
             st.execute(pagesTable);
             st.execute(stateTable);
             st.execute(langTable);
@@ -119,25 +140,69 @@ public class Database {
         }
     }
 
-    /** 降版本保护：数据库里不存在于当前版本的物品名仅警告并跳过，不删除记录 */
-    private void loadFlags() throws SQLException {
+    /** 加载黑/白名单到内存缓存（含降版本保护：未知物品名仅警告跳过） */
+    private void loadLists() throws SQLException {
+        blacklistCache.clear();
+        whitelistCache.clear();
         try (Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT material, flag FROM ab_item_flags")) {
+             ResultSet rs = st.executeQuery("SELECT material FROM ab_blacklist")) {
             while (rs.next()) {
-                String name = rs.getString(1);
-                String flag = rs.getString(2);
-                Material mat = Material.matchMaterial(name);
+                Material mat = Material.matchMaterial(rs.getString(1));
                 if (mat == null) {
-                    plugin.getLogger().warning("数据库中的物品在当前版本不存在，已跳过: " + name);
-                    continue;
-                }
-                try {
-                    flagCache.put(mat, MaterialFlag.valueOf(flag.toUpperCase(Locale.ROOT)));
-                } catch (IllegalArgumentException e) {
-                    plugin.getLogger().warning("数据库中的标记值无效，已跳过: " + name + " = " + flag);
+                    plugin.getLogger().warning("黑名单中的物品在当前版本不存在，已跳过: " + rs.getString(1));
+                } else {
+                    blacklistCache.add(mat);
                 }
             }
         }
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT material FROM ab_whitelist")) {
+            while (rs.next()) {
+                Material mat = Material.matchMaterial(rs.getString(1));
+                if (mat == null) {
+                    plugin.getLogger().warning("白名单中的物品在当前版本不存在，已跳过: " + rs.getString(1));
+                } else {
+                    whitelistCache.add(mat);
+                }
+            }
+        }
+    }
+
+    public Set<Material> getBlacklist() {
+        return blacklistCache;
+    }
+
+    public Set<Material> getWhitelist() {
+        return whitelistCache;
+    }
+
+    /** 存入名单（white=false 为黑名单）：只存物品ID，存入即在名单 */
+    public void addToList(Material mat, boolean white) {
+        String table = white ? "ab_whitelist" : "ab_blacklist";
+        (white ? whitelistCache : blacklistCache).add(mat);
+        asyncUpdate("INSERT " + (mysql ? "IGNORE " : "OR IGNORE ") + "INTO " + table + "(material) VALUES(?)",
+                ps -> {
+                    try {
+                        ps.setString(1, mat.name());
+                        ps.executeUpdate();
+                    } catch (SQLException e) {
+                        plugin.getLogger().warning("名单写入失败: " + e.getMessage());
+                    }
+                });
+    }
+
+    /** 从名单移除：删除ID即移出名单 */
+    public void removeFromList(Material mat, boolean white) {
+        String table = white ? "ab_whitelist" : "ab_blacklist";
+        (white ? whitelistCache : blacklistCache).remove(mat);
+        asyncUpdate("DELETE FROM " + table + " WHERE material = ?", ps -> {
+            try {
+                ps.setString(1, mat.name());
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().warning("名单删除失败: " + e.getMessage());
+            }
+        });
     }
 
     public String getSetting(String key, String def) {
@@ -157,42 +222,6 @@ public class Database {
                         plugin.getLogger().warning("设置写入失败: " + e.getMessage());
                     }
                 });
-    }
-
-    public MaterialFlag getFlag(Material mat) {
-        return flagCache.getOrDefault(mat, MaterialFlag.NORMAL);
-    }
-
-    public Map<Material, MaterialFlag> getFlags() {
-        return flagCache;
-    }
-
-    /** flag 为 null 表示清除标记 */
-    public void setFlag(Material mat, MaterialFlag flag) {
-        if (flag == null || flag == MaterialFlag.NORMAL) {
-            flagCache.remove(mat);
-            asyncUpdate("DELETE FROM ab_item_flags WHERE material = ?", ps -> {
-                try {
-                    ps.setString(1, mat.name());
-                    ps.executeUpdate();
-                } catch (SQLException e) {
-                    plugin.getLogger().warning("标记删除失败: " + e.getMessage());
-                }
-            });
-        } else {
-            flagCache.put(mat, flag);
-            asyncUpdate("INSERT INTO ab_item_flags(material, flag) VALUES(?, ?)"
-                            + (mysql ? " ON DUPLICATE KEY UPDATE flag = VALUES(flag)" : " ON CONFLICT(material) DO UPDATE SET flag = excluded.flag"),
-                    ps -> {
-                        try {
-                            ps.setString(1, mat.name());
-                            ps.setString(2, flag.name());
-                            ps.executeUpdate();
-                        } catch (SQLException e) {
-                            plugin.getLogger().warning("标记写入失败: " + e.getMessage());
-                        }
-                    });
-        }
     }
 
     /** 读取恢复目标视图：[view, keyword]；无记录返回 null */
