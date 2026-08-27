@@ -371,9 +371,9 @@ public class Database {
         return null;
     }
 
-    /** 授权：days<=0 表示永久 */
-    public void grantAccess(String playerName, long days) {
-        final long expires = days <= 0 ? 0 : System.currentTimeMillis() + days * 86400000L;
+    /** 授权：expiresAt=0 表示永久，否则为过期毫秒时间戳 */
+    public void grantAccess(String playerName, long expiresAt) {
+        final long expires = expiresAt <= 0 ? 0 : expiresAt;
         asyncUpdate("INSERT INTO ab_access(player, expires) VALUES(?, ?)"
                         + (mysql ? " ON DUPLICATE KEY UPDATE expires = VALUES(expires)"
                                  : " ON CONFLICT(player) DO UPDATE SET expires = excluded.expires"),
@@ -389,7 +389,9 @@ public class Database {
     }
 
     public void removeAccess(String playerName) {
-        asyncUpdate("DELETE FROM ab_access WHERE player = ? COLLATE NOCASE", ps -> {
+        asyncUpdate(mysql
+                ? "DELETE FROM ab_access WHERE player = ? COLLATE utf8mb4_general_ci"
+                : "DELETE FROM ab_access WHERE player = ? COLLATE NOCASE", ps -> {
             try {
                 ps.setString(1, playerName);
                 ps.executeUpdate();

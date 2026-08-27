@@ -9,7 +9,7 @@ description: 自动检索服务器全部物品并按创造物品栏分类的材�
 commands:
   mats:
     description: 打开物品菜单
-    usage: /mats [help|reload|admin|trash|add|remove]
+    usage: /mats [help|reload|admin|trash|add|remove|list]
     aliases: [materials, cailiao]
 
 permissions:

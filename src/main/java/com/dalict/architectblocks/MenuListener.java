@@ -162,6 +162,10 @@ public class MenuListener implements Listener {
             plugin.openFlightMenu(player);
             return;
         }
+        if (slot == 7 && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
+            plugin.giveQuickItem(player);
+            return;
+        }
         if (slot == 45) {
             if (holder.isInvOnly()) {
                 // 返回主页：恢复主页自己的记忆页码

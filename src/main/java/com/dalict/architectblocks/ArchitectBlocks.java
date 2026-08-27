@@ -82,7 +82,27 @@ public class ArchitectBlocks extends JavaPlugin {
                 sender.sendMessage(getMessage("no-permission"));
                 return true;
             }
-            return mutatePlayerList(args, sender, args[0].equalsIgnoreCase("add"));
+            return handleAccessCommand(args, sender);
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("list")) {
+            if (!sender.hasPermission(PERM_ADMIN)) {
+                sender.sendMessage(getMessage("no-permission"));
+                return true;
+            }
+            sendColored(sender, getMessage("access-list-header"));
+            java.util.List<String[]> records = db.loadAllAccess();
+            if (records.isEmpty()) {
+                sendColored(sender, getMessage("access-list-empty"));
+            } else {
+                for (String[] rec : records) {
+                    sendColored(sender, getMessage("access-list-line")
+                            .replace("%name%", rec[0])
+                            .replace("%expire%", expireText(Long.parseLong(rec[1]))));
+                }
+                sendColored(sender, getMessage("access-list-footer")
+                        .replace("%count%", String.valueOf(records.size())));
+            }
+            return true;
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission(PERM_ADMIN)) {
@@ -208,39 +228,75 @@ public class ArchitectBlocks extends JavaPlugin {
         }
     }
 
-    /** 名单增删（写入数据库）；add 可带 [天数]，0/缺省为永久 */
-    private boolean mutatePlayerList(String[] args, CommandSender sender, boolean add) {
+    /** 授权命令：/mats add <名> [时长] / /mats remove <名>；时长支持单位（30d/12h/45m/10s，纯数字=天） */
+    private boolean handleAccessCommand(String[] args, CommandSender sender) {
+        boolean add = args[0].equalsIgnoreCase("add");
         if (args.length < 2) {
             sender.sendMessage(color("&c用法: /mats " + (add ? "add" : "remove")
-                    + " <玩家名>" + (add ? " [天数]" : "")));
+                    + " <玩家名>" + (add ? " [时长]" : "")));
             return true;
         }
         String target = args[1].trim();
-        long days = 0;
-        if (add && args.length >= 3) {
-            try {
-                days = Long.parseLong(args[2]);
-                if (days < 0) days = 0;
-            } catch (NumberFormatException e) {
-                sender.sendMessage(color("&c天数必须是数字: " + args[2]));
-                return true;
-            }
-        }
         if (add) {
-            db.grantAccess(target, days);
-            String expire = days == 0 ? getMessage("expire-permanent")
-                    : getMessage("expire-days").replace("%days%", String.valueOf(days));
-            sender.sendMessage(color("&a已授权 &f" + target + " &7(" + expire + ")"));
+            long expires = 0;
+            if (args.length >= 3) {
+                Long millis = parseDuration(args[2]);
+                if (millis == null) {
+                    sender.sendMessage(getMessage("duration-invalid").replace("%input%", args[2]));
+                    return true;
+                }
+                expires = millis == 0 ? 0 : System.currentTimeMillis() + millis;
+            }
+            db.grantAccess(target, expires);
+            String expire = expires == 0 ? getMessage("expire-permanent") : expireText(expires);
+            sender.sendMessage(color(getMessage("access-granted")
+                    .replace("%name%", target).replace("%expire%", expire)));
             Player online = Bukkit.getPlayerExact(target);
-            if (online != null) {
-                giveQuickItem(online);
+            if (online != null && quickItem != null) {
+                quickItem.give(online, false);
             }
         } else {
             String[] rec = db.getAccessRecord(target);
-            db.removeAccess(rec != null ? rec[0] : target);
-            sender.sendMessage(color("&a已移除 &f" + target + " &a的授权。"));
+            if (rec == null) {
+                sender.sendMessage(getMessage("access-not-found").replace("%name%", target));
+                return true;
+            }
+            db.removeAccess(rec[0]);
+            sender.sendMessage(color(getMessage("access-revoked").replace("%name%", rec[0])));
         }
         return true;
+    }
+
+    /**
+     * 时长解析：30d/12h/45m/10s（可组合如 1d12h），纯数字=天。
+     * 返回毫秒；0=永久；null=格式无效。
+     */
+    public Long parseDuration(String input) {
+        input = input.trim().toLowerCase();
+        if (input.isEmpty()) {
+            return null;
+        }
+        if (input.equals("0") || input.equals("permanent") || input.equals("永久")) {
+            return 0L;
+        }
+        if (input.matches("[0-9]+")) {
+            return Long.parseLong(input) * 86400000L;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("([0-9]+)([dhms])").matcher(input);
+        long total = 0;
+        int matched = 0;
+        while (m.find()) {
+            matched++;
+            long value = Long.parseLong(m.group(1));
+            switch (m.group(2)) {
+                case "d": total += value * 86400000L; break;
+                case "h": total += value * 3600000L; break;
+                case "m": total += value * 60000L; break;
+                case "s": total += value * 1000L; break;
+            }
+        }
+        return matched == 0 ? null : total;
     }
 
     private void sendColored(CommandSender sender, String msg) {
@@ -427,6 +483,7 @@ public class ArchitectBlocks extends JavaPlugin {
         inv.setItem(16, icon(white ? Material.WHITE_WOOL : Material.BLACK_WOOL,
                 color(getGuiConfigString("names.mode-toggle", "&8[ &e名单模式 &8]")),
                 color(getMessage("mode-current") + modeName(white)),
+                color(getMessage(white ? "mode-hint-white" : "mode-hint-black")),
                 color(getMessage("click-cycle"))));
         inv.setItem(22, icon(material("close-button", Material.BARRIER),
                 color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
@@ -548,9 +605,11 @@ public class ArchitectBlocks extends JavaPlugin {
         inv.setItem(4, icon(material("flight-menu-button", Material.FEATHER),
                 color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
                 color(getMessage("flight-lore"))));
-        inv.setItem(4, icon(material("flight-menu-button", Material.FEATHER),
-                color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
-                color(getMessage("flight-lore"))));
+        if (isAdmin) {
+            inv.setItem(7, icon(material("give-quick-button", Material.KNOWLEDGE_BOOK),
+                    color(getGuiConfigString("names.give-quick", "&8[ &e发放快捷物品 &8]")),
+                    color(getMessage("give-quick-lore"))));
+        }
         inv.setItem(8, icon(material("search-button", Material.COMPASS),
                 color(getGuiConfigString("names.search", "&8[ &b搜索 &8]")),
                 searchLore(player)));
@@ -825,15 +884,10 @@ public class ArchitectBlocks extends JavaPlugin {
         }
     }
 
-    /** 给予快捷物品（已持有则跳过） */
+    /** 快捷物品发放转发（带提示） */
     public void giveQuickItem(Player player) {
-        if (quickItem == null || hasQuickItem(player)) {
-            return;
-        }
-        Map<Integer, ItemStack> leftover =
-                player.getInventory().addItem(quickItem.createItem());
-        for (ItemStack rest : leftover.values()) {
-            player.getWorld().dropItemNaturally(player.getLocation(), rest);
+        if (quickItem != null) {
+            quickItem.give(player, true);
         }
     }
 
@@ -928,6 +982,20 @@ public class ArchitectBlocks extends JavaPlugin {
 
     String getMessage(String key) {
         return color(getConfig().getString("messages." + key, "&c缺少消息配置: " + key));
+    }
+
+    /** 占位符应用：PlaceholderAPI 存在时替换变量，否则原样返回 */
+    public String applyPapi(Player player, String text) {
+        if (expansionRef == null || text == null) {
+            return text;
+        }
+        try {
+            Class<?> papi = Class.forName("me.clip.placeholderapi.PlaceholderAPI");
+            return (String) papi.getMethod("setPlaceholders",
+                    Player.class, String.class).invoke(null, player, text);
+        } catch (Throwable t) {
+            return text;
+        }
     }
 
     static String color(String text) {
