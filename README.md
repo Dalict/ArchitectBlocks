@@ -9,6 +9,7 @@
 <div align="center">
     <img src="https://img.shields.io/github/v/release/Dalict/ArchitectBlocks?color=blue&label=release" alt="Release"/>
     <img src="https://img.shields.io/github/last-commit/Dalict/ArchitectBlocks" alt="GitHub last commit"/>
+    <img src="https://img.shields.io/github/contributors/Dalict/ArchitectBlocks" alt="GitHub contributors"/>
     <img src="https://img.shields.io/github/commit-activity/w/Dalict/ArchitectBlocks" alt="GitHub commit activity"/>
     <br>
     <img src="https://img.shields.io/github/languages/code-size/Dalict/ArchitectBlocks" alt="GitHub code size in bytes"/>
@@ -180,6 +181,13 @@ python assets/make_icon.py   # 重新生成图标（需要 Pillow）
 ## 开源协议
 
 MIT License，见 [LICENSE](LICENSE)。
+
+## 贡献者
+
+| 贡献者 | 角色 |
+|--------|------|
+| [Dalict](https://github.com/Dalict) | 作者 / 主要维护者 |
+| ZTF3 | 贡献者 |
 
 ## 支持与反馈
 

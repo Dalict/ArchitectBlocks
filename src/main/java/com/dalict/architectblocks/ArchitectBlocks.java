@@ -25,6 +25,7 @@ import java.util.UUID;
 /**
  * ArchitectBlocks - 自动检索服务器全部物品的物品菜单插件
  * 作者: Dalict
+ * 贡献者: ZTF3
  */
 public class ArchitectBlocks extends JavaPlugin {
 
