@@ -21,3 +21,7 @@ bin/
 
 # 构建产物 jar 请通过 GitHub Releases 发布
 ArchitectBlocks-*.jar
+
+# 临时文件
+resp.json
+body.json

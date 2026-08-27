@@ -4,8 +4,9 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
 /**
- * 菜单标识。keyword 仅用于 SEARCH / PAGE_SELECT(来源为搜索时)；
- * invOnly 用于 MAIN（true = 只显示背包已有物品）。
+ * 菜单标识。
+ * listMode 仅用于 ADMIN_LIST：black / white / upload；
+ * invFilter 用于 ADMIN_LIST 的"只显示背包已有"过滤。
  */
 public class MenuHolder implements InventoryHolder {
 
@@ -17,13 +18,21 @@ public class MenuHolder implements InventoryHolder {
     private final int page;
     private final String keyword;
     private final boolean invOnly;
+    private final String listMode;
+    private final boolean invFilter;
     private Inventory inventory;
 
     public MenuHolder(Type type, int page, String keyword, boolean invOnly) {
+        this(type, page, keyword, invOnly, null, false);
+    }
+
+    public MenuHolder(Type type, int page, String keyword, boolean invOnly, String listMode, boolean invFilter) {
         this.type = type;
         this.page = page;
         this.keyword = keyword;
         this.invOnly = invOnly;
+        this.listMode = listMode;
+        this.invFilter = invFilter;
     }
 
     public Type getType() {
@@ -40,6 +49,14 @@ public class MenuHolder implements InventoryHolder {
 
     public boolean isInvOnly() {
         return invOnly;
+    }
+
+    public String getListMode() {
+        return listMode;
+    }
+
+    public boolean isInvFilter() {
+        return invFilter;
     }
 
     void setInventory(Inventory inventory) {

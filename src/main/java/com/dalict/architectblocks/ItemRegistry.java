@@ -1,11 +1,18 @@
 package com.dalict.architectblocks;
 
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.util.io.BukkitObjectInputStream;
+import org.bukkit.util.io.BukkitObjectOutputStream;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -15,8 +22,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 启动时检索服务器全部物品，提供统一的主列表。
- * 显示过滤：黑名单 > 白名单 > 管理员物品开关 > 刷怪蛋开关。
+ * 物品注册表：原版物品（启动时检索）+ 管理员上传的自定义物品（数据库 Base64）。
+ * 显示过滤：名单模式(黑/白) > 物品标记 > 管理员物品开关 > 刷怪蛋开关；
+ * 上传的自定义物品不受名单与开关控制，仅受物品来源开关控制。
  */
 public class ItemRegistry {
 
@@ -31,8 +39,8 @@ public class ItemRegistry {
 
     private final ArchitectBlocks plugin;
     private final List<Material> all = new ArrayList<>();
-    /** 搜索语言缓存（reload 时从配置读一次，避免物品循环内反复解析 YAML） */
     private final List<String> searchLangs = new ArrayList<>();
+    private final List<ItemEntry> customs = new ArrayList<>();
 
     public ItemRegistry(ArchitectBlocks plugin) {
         this.plugin = plugin;
@@ -54,10 +62,11 @@ public class ItemRegistry {
             }
         }
         all.sort(currentComparator());
-        plugin.getLogger().info("共检索到物品: " + all.size() + " 种");
+        reloadCustoms();
+        plugin.getLogger().info("共检索到物品: " + all.size() + " 种, 自定义物品: " + customs.size() + " 个");
     }
 
-    // ---------- 开关设置（数据库） ----------
+    // ==================== 设置（数据库） ====================
 
     public boolean isAllowSpawnEggs() {
         return "true".equalsIgnoreCase(plugin.getDb().getSetting("allow_spawn_eggs", "true"));
@@ -75,14 +84,37 @@ public class ItemRegistry {
         plugin.getDb().setSetting("allow_admin_items", String.valueOf(allow));
     }
 
-    // ---------- 显示过滤 ----------
+    /** 名单模式: black=黑名单(默认,未标记的可见) / white=白名单(仅白名单内的可见) */
+    public boolean isWhiteMode() {
+        return "white".equalsIgnoreCase(plugin.getDb().getSetting("list_mode", "black"));
+    }
+
+    public void setWhiteMode(boolean white) {
+        plugin.getDb().setSetting("list_mode", white ? "white" : "black");
+    }
+
+    /** 物品来源: both(原版+上传,默认) / vanilla(仅原版) / custom(仅上传) */
+    public String getItemSource() {
+        String v = plugin.getDb().getSetting("item_source", "both");
+        return "vanilla".equals(v) || "custom".equals(v) || "both".equals(v) ? v : "both";
+    }
+
+    public void setItemSource(String source) {
+        plugin.getDb().setSetting("item_source", source);
+    }
+
+    // ==================== 显示过滤 ====================
 
     public boolean isAdminItem(Material mat) {
         return ADMIN_ITEM_NAMES.contains(mat.name());
     }
 
+    /** 原版物品可见性：白名单模式下仅白名单可见；黑名单模式下 黑名单隐藏 > 白名单显示 > 各开关 */
     public boolean isVisible(Material mat) {
         MaterialFlag flag = plugin.getDb().getFlag(mat);
+        if (isWhiteMode()) {
+            return flag == MaterialFlag.WHITE;
+        }
         if (flag == MaterialFlag.BLACK) {
             return false;
         }
@@ -98,43 +130,56 @@ public class ItemRegistry {
         return true;
     }
 
-    /** 主列表：全部可见物品 */
-    public List<Material> getVisible() {
-        List<Material> out = new ArrayList<>();
-        for (Material mat : all) {
-            if (isVisible(mat)) {
-                out.add(mat);
+    // ==================== 列表构建 ====================
+
+    /** 主列表：自定义物品在前（按名称排序），原版物品在后（按配置排序），受物品来源开关控制 */
+    public List<ItemEntry> getVisible() {
+        List<ItemEntry> out = new ArrayList<>();
+        String source = getItemSource();
+        if (!"vanilla".equals(source)) {
+            out.addAll(customs);
+        }
+        if (!"custom".equals(source)) {
+            for (Material mat : all) {
+                if (isVisible(mat)) {
+                    out.add(ItemEntry.vanilla(mat));
+                }
             }
         }
         return out;
     }
 
     /** 背包已有物品列表 */
-    public List<Material> getInventoryVisible(Player player) {
+    public List<ItemEntry> getInventoryVisible(Player player) {
         Set<Material> owned = new LinkedHashSet<>();
         for (ItemStack item : player.getInventory().getContents()) {
             if (item != null && !item.getType().isAir()) {
                 owned.add(item.getType());
             }
         }
-        List<Material> out = new ArrayList<>();
-        for (Material mat : all) {
-            if (owned.contains(mat) && isVisible(mat)) {
-                out.add(mat);
+        List<ItemEntry> out = new ArrayList<>();
+        for (ItemEntry entry : getVisible()) {
+            if (owned.contains(entry.material)) {
+                out.add(entry);
             }
         }
         return out;
     }
 
-    /** 搜索：匹配 枚举名 / en_us / 配置的搜索语言列表 */
-    public List<Material> search(String query) {
+    /** 搜索：自定义物品按其显示名（无显示名则按基础物品的语言文字）匹配，原版物品走语言匹配 */
+    public List<ItemEntry> search(String query) {
         String q = query.toLowerCase(Locale.ROOT);
-        List<Material> out = new ArrayList<>();
-        for (Material mat : all) {
-            if (!isVisible(mat) || !matches(mat, q)) {
-                continue;
+        List<ItemEntry> out = new ArrayList<>();
+        for (ItemEntry entry : getVisible()) {
+            if (entry.isCustom()) {
+                if (entry.customName != null && entry.customName.toLowerCase(Locale.ROOT).contains(q)) {
+                    out.add(entry);
+                } else if (matches(entry.material, q)) {
+                    out.add(entry);
+                }
+            } else if (isVisible(entry.material) && matches(entry.material, q)) {
+                out.add(entry);
             }
-            out.add(mat);
         }
         return out;
     }
@@ -172,7 +217,96 @@ public class ItemRegistry {
         }
     }
 
-    // ---------- 排序 ----------
+    // ==================== 自定义物品（上传） ====================
+
+    /** 从数据库重新加载自定义物品 */
+    public void reloadCustoms() {
+        customs.clear();
+        for (String[] row : plugin.getDb().loadCustomRaw()) {
+            int id;
+            try {
+                id = Integer.parseInt(row[0]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            ItemStack item = fromBase64(row[1]);
+            if (item == null) {
+                plugin.getLogger().warning("自定义物品 #" + id + " 解码失败，已跳过（数据库记录保留）");
+                continue;
+            }
+            customs.add(ItemEntry.custom(id, item, row[2]));
+        }
+        customs.sort(Comparator.comparing(e -> sortKey(e).toLowerCase(Locale.ROOT)));
+    }
+
+    private String sortKey(ItemEntry e) {
+        return e.customName != null ? e.customName : e.material.name();
+    }
+
+    /** 上传一个物品（完整 NBT）；返回 false 表示已存在相同物品 */
+    public boolean addCustom(ItemStack item) {
+        String base64 = toBase64(item);
+        if (base64 == null) {
+            return false;
+        }
+        for (ItemEntry e : customs) {
+            String existing = toBase64(e.custom);
+            if (base64.equals(existing)) {
+                return false;
+            }
+        }
+        String name = resolveCustomName(item);
+        plugin.getDb().addCustom(base64, name);
+        reloadCustoms();
+        return true;
+    }
+
+    public void removeCustom(int id) {
+        plugin.getDb().removeCustom(id);
+        reloadCustoms();
+    }
+
+    public List<ItemEntry> getCustoms() {
+        return customs;
+    }
+
+    /** 自定义物品的显示名：有自定义名称取其纯文本，否则为 null（搜索回退到基础物品语言文字） */
+    private String resolveCustomName(ItemStack item) {
+        try {
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null && meta.hasDisplayName()) {
+                String stripped = ChatColor.stripColor(meta.getDisplayName());
+                if (stripped != null && !stripped.trim().isEmpty()) {
+                    return stripped.trim();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    public static String toBase64(ItemStack item) {
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream();
+             BukkitObjectOutputStream data = new BukkitObjectOutputStream(out)) {
+            data.writeObject(item);
+            data.flush();
+            return Base64.getEncoder().encodeToString(out.toByteArray());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static ItemStack fromBase64(String base64) {
+        try (BukkitObjectInputStream in = new BukkitObjectInputStream(
+                new ByteArrayInputStream(Base64.getDecoder().decode(base64)))) {
+            Object obj = in.readObject();
+            return obj instanceof ItemStack ? (ItemStack) obj : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ==================== 排序 ====================
 
     /** 排序: type=按种类(家族聚簇，接近创造栏观感), alphabetical=字母序 */
     private Comparator<Material> currentComparator() {

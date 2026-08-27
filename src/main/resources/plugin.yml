@@ -1,5 +1,5 @@
 name: ArchitectBlocks
-version: b1.10.1
+version: b1.11.0
 main: com.dalict.architectblocks.ArchitectBlocks
 api-version: '1.21'
 author: Dalict
@@ -9,7 +9,7 @@ description: 自动检索服务器全部物品并按创造物品栏分类的材�
 commands:
   mats:
     description: 打开物品菜单
-    usage: /mats [reload|admin|trash]
+    usage: /mats [help|reload|admin|trash|add|remove]
     aliases: [materials, cailiao]
 
 permissions:

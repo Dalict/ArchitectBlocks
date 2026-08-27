@@ -78,16 +78,30 @@ public class MenuListener implements Listener {
             return;
         }
 
-        // 黑名单管理页：点击自己背包中的物品 = 加入黑名单
+        // 名单/上传管理页：点击自己背包中的物品 = 加入名单 / 上传
         if (holder.getType() == MenuHolder.Type.ADMIN_LIST
                 && event.getClickedInventory() != null
                 && event.getClickedInventory() != top
                 && event.getCurrentItem() != null
                 && !event.getCurrentItem().getType().isAir()) {
-            Material toBlack = event.getCurrentItem().getType();
-            plugin.getDb().setFlag(toBlack, MaterialFlag.BLACK);
-            player.sendMessage(plugin.getMessage("flag-set-black").replace("%item%", toBlack.name()));
-            plugin.openAdminList(player, holder.getPage());
+            ItemStack clicked = event.getCurrentItem().clone();
+            String mode = holder.getListMode();
+            if ("upload".equals(mode)) {
+                boolean added = plugin.getItemRegistry().addCustom(clicked);
+                if (added) {
+                    player.sendMessage(plugin.getMessage("uploaded")
+                            .replace("%item%", clicked.getType().name()));
+                } else {
+                    player.sendMessage(plugin.getMessage("upload-duplicate"));
+                }
+            } else if ("white".equals(mode)) {
+                plugin.getDb().setFlag(clicked.getType(), MaterialFlag.WHITE);
+                player.sendMessage(plugin.getMessage("flag-set-white").replace("%item%", clicked.getType().name()));
+            } else {
+                plugin.getDb().setFlag(clicked.getType(), MaterialFlag.BLACK);
+                player.sendMessage(plugin.getMessage("flag-set-black").replace("%item%", clicked.getType().name()));
+            }
+            plugin.openAdminList(player, holder.getPage(), mode, holder.isInvFilter());
             return;
         }
         // 其他菜单：玩家自身背包的点击仅取消
@@ -121,7 +135,7 @@ public class MenuListener implements Listener {
     // ---------- 主菜单 / 背包视图 ----------
 
     private void handleMain(Player player, MenuHolder holder, int slot) {
-        List<Material> items = holder.isInvOnly()
+        List<ItemEntry> items = holder.isInvOnly()
                 ? plugin.getItemRegistry().getInventoryVisible(player)
                 : plugin.getItemRegistry().getVisible();
         int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
@@ -171,7 +185,7 @@ public class MenuListener implements Listener {
 
     private void handleSearch(Player player, MenuHolder holder, int slot) {
         String keyword = holder.getKeyword();
-        List<Material> items = plugin.getItemRegistry().search(keyword);
+        List<ItemEntry> items = plugin.getItemRegistry().search(keyword);
         int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         int page = holder.getPage();
         if (slot == 0) {
@@ -183,7 +197,7 @@ public class MenuListener implements Listener {
             return;
         }
         if (slot == 8) {
-            // 返回主界面：恢复主页自己的记忆页码（不再丢失）
+            // 返回主界面：恢复主页自己的记忆页码
             plugin.openMainMenu(player, plugin.getDb().getPage(player.getUniqueId(), "main"), false);
             return;
         }
@@ -222,7 +236,6 @@ public class MenuListener implements Listener {
             return;
         }
         String sourceView = holder.getKeyword() != null ? "search" : (holder.isInvOnly() ? "inv" : "main");
-        // 选择页自身的翻页
         int total = totalOf(player, sourceView, holder.getKeyword());
         int selectPages = Math.max(1, (total + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         if (slot == 48 && selectPages > 1) {
@@ -254,7 +267,7 @@ public class MenuListener implements Listener {
     }
 
     private int totalOf(Player player, String view, String keyword) {
-        List<Material> items;
+        List<ItemEntry> items;
         if ("inv".equals(view)) {
             items = plugin.getItemRegistry().getInventoryVisible(player);
         } else if ("search".equals(view)) {
@@ -267,7 +280,7 @@ public class MenuListener implements Listener {
 
     // ---------- 取物 ----------
 
-    private void giveIfItem(Player player, List<Material> items, int page, int slot) {
+    private void giveIfItem(Player player, List<ItemEntry> items, int page, int slot) {
         int offset = slot - ArchitectBlocks.ITEM_SLOT_START;
         if (offset < 0 || offset >= ArchitectBlocks.PAGE_SIZE) {
             return;
@@ -280,12 +293,18 @@ public class MenuListener implements Listener {
             player.sendMessage(plugin.getMessage("give-cooldown"));
             return;
         }
-        Material material = items.get(index);
-        int amount = plugin.getClickAmount();
-        if (amount > material.getMaxStackSize()) {
-            amount = material.getMaxStackSize();
+        ItemEntry entry = items.get(index);
+        ItemStack give;
+        if (entry.isCustom()) {
+            give = entry.custom.clone(); // 原汁原味（含 NBT 与数量）
+        } else {
+            int amount = plugin.getClickAmount();
+            if (amount > entry.material.getMaxStackSize()) {
+                amount = entry.material.getMaxStackSize();
+            }
+            give = new ItemStack(entry.material, amount);
         }
-        Map<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(material, amount));
+        Map<Integer, ItemStack> leftover = player.getInventory().addItem(give);
         for (ItemStack rest : leftover.values()) {
             player.getWorld().dropItemNaturally(player.getLocation(), rest);
         }
@@ -299,7 +318,7 @@ public class MenuListener implements Listener {
             plugin.openMenu(player);
             return;
         }
-        if (slot == 11) {
+        if (slot == 10) {
             boolean now = !plugin.getItemRegistry().isAllowSpawnEggs();
             plugin.getItemRegistry().setAllowSpawnEggs(now);
             player.sendMessage(plugin.getMessage("eggs-toggled")
@@ -307,7 +326,7 @@ public class MenuListener implements Listener {
             plugin.openAdmin(player);
             return;
         }
-        if (slot == 13) {
+        if (slot == 11) {
             boolean now = !plugin.getItemRegistry().isAllowAdminItems();
             plugin.getItemRegistry().setAllowAdminItems(now);
             player.sendMessage(plugin.getMessage("admin-items-toggled")
@@ -315,13 +334,42 @@ public class MenuListener implements Listener {
             plugin.openAdmin(player);
             return;
         }
+        if (slot == 12) {
+            plugin.openAdminList(player, 0, "black", false);
+            return;
+        }
+        if (slot == 13) {
+            plugin.openAdminList(player, 0, "white", false);
+            return;
+        }
+        if (slot == 14) {
+            plugin.openAdminList(player, 0, "upload", false);
+            return;
+        }
         if (slot == 15) {
-            plugin.openAdminList(player, 0);
+            String next;
+            String current = plugin.getItemRegistry().getItemSource();
+            switch (current) {
+                case "both": next = "vanilla"; break;
+                case "vanilla": next = "custom"; break;
+                default: next = "both"; break;
+            }
+            plugin.getItemRegistry().setItemSource(next);
+            player.sendMessage(plugin.getMessage("source-toggled") + plugin.sourceName(next));
+            plugin.openAdmin(player);
+            return;
+        }
+        if (slot == 16) {
+            boolean white = !plugin.getItemRegistry().isWhiteMode();
+            plugin.getItemRegistry().setWhiteMode(white);
+            player.sendMessage(plugin.getMessage("mode-toggled") + plugin.modeName(white));
+            plugin.openAdmin(player);
             return;
         }
     }
 
     private void handleAdminList(Player player, MenuHolder holder, int slot) {
+        String mode = holder.getListMode();
         if (slot == 0) {
             player.closeInventory();
             return;
@@ -330,17 +378,22 @@ public class MenuListener implements Listener {
             plugin.openAdmin(player);
             return;
         }
-        List<Material> items = plugin.collectBlacklisted();
+        if (slot == 45) {
+            plugin.openAdminList(player, 0, mode, !holder.isInvFilter());
+            return;
+        }
+        List<ItemEntry> items = plugin.buildAdminListEntries(player, mode, holder.isInvFilter());
         int pageCount = Math.max(1, (items.size() + ArchitectBlocks.PAGE_SIZE - 1) / ArchitectBlocks.PAGE_SIZE);
         int page = holder.getPage();
         if (slot == 48 && pageCount > 1) {
-            plugin.openAdminList(player, (page - 1 + pageCount) % pageCount);
+            plugin.openAdminList(player, (page - 1 + pageCount) % pageCount, mode, holder.isInvFilter());
             return;
         }
         if (slot == 50 && pageCount > 1) {
-            plugin.openAdminList(player, (page + 1) % pageCount);
+            plugin.openAdminList(player, (page + 1) % pageCount, mode, holder.isInvFilter());
             return;
         }
+        // 点击列表中的物品 = 移出名单 / 删除上传
         int offset = slot - ArchitectBlocks.ITEM_SLOT_START;
         if (offset < 0 || offset >= ArchitectBlocks.PAGE_SIZE) {
             return;
@@ -349,9 +402,15 @@ public class MenuListener implements Listener {
         if (index >= items.size()) {
             return;
         }
-        Material mat = items.get(index);
-        plugin.getDb().setFlag(mat, null);
-        player.sendMessage(plugin.getMessage("flag-cleared").replace("%item%", mat.name()));
-        plugin.openAdminList(player, page);
+        ItemEntry entry = items.get(index);
+        if (entry.isCustom()) {
+            plugin.getItemRegistry().removeCustom(entry.customId);
+            player.sendMessage(plugin.getMessage("upload-removed")
+                    .replace("%item%", entry.customName != null ? entry.customName : entry.material.name()));
+        } else {
+            plugin.getDb().setFlag(entry.material, null);
+            player.sendMessage(plugin.getMessage("flag-cleared").replace("%item%", entry.material.name()));
+        }
+        plugin.openAdminList(player, page, mode, holder.isInvFilter());
     }
 }

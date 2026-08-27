@@ -4,7 +4,7 @@
 # 开关(刷怪蛋/管理员物品)、物品黑名单、玩家界面状态存储在数据库中，游戏内 /mats admin 实时管理
 
 # 配置版本号（插件自动升级配置时使用，请勿手动修改）
-config-version: 2
+config-version: 3
 
 # 访问控制：默认 指定玩家名单 或 拥有 architectblocks.use/admin 权限 的玩家可用
 # 玩家名单存放在独立的 players.yml，用 /mats add|remove <玩家名> 管理
@@ -63,6 +63,11 @@ gui:
     eggs-toggle: CREEPER_SPAWN_EGG
     admin-items-toggle: COMMAND_BLOCK
     blacklist-button: BLACK_WOOL
+    whitelist-button: WHITE_WOOL
+    upload-button: CHEST
+    source-button: BOOKSHELF
+    mode-button: LEVER
+    filter-button: HOPPER
     trash-button: LAVA_BUCKET
   names:
     close: '&8[ &c关闭 &8]'
@@ -78,9 +83,53 @@ gui:
     eggs-toggle: '&8[ &d允许刷怪蛋 &8]'
     admin-items-toggle: '&8[ &4允许管理员物品 &8]'
     blacklist-list: '&8[ &c物品黑名单列表 &8]'
+    whitelist-list: '&8[ &f物品白名单列表 &8]'
+    upload-list: '&8[ &b上传物品管理 &8]'
+    source-toggle: '&8[ &6物品来源 &8]'
+    mode-toggle: '&8[ &e名单模式 &8]'
     trash: '&8[ &6垃圾桶 &8]'
 
-messages:
+  help:
+    - '&8&m----------&r &8[&a ArchitectBlocks 帮助 &8]&8&m----------'
+    - '&e/mats &7- 打开物品菜单（也可用 /materials、/cailiao）'
+    - '&e/mats trash &7- 打开垃圾桶（放入即销毁）'
+    - '&e/mats help &7- 显示本帮助'
+    - '&e/mats admin &7- 管理员设置界面 &8(需要 admin 权限)'
+    - '&e/mats add|remove <玩家名> &7- 管理可用玩家名单 &8(需要 admin 权限)'
+    - '&e/mats reload &7- 重载配置 &8(需要 admin 权限)'
+    - '&7菜单内: &f0&7关闭 &f8&7搜索/返回 &f45&7背包过滤 &f48/50&7翻页 &f49&7选页 &f53&7垃圾桶'
+    - '&8&m------------------------------------------------'
+  title-admin-list-white: '&8白名单管理 %page%/%max% %filter%'
+  title-admin-upload: '&8上传物品管理 %page%/%max% %filter%'
+  whitelist-list-lore: '&7ⓘ 添加: 保持界面打开，点击背包中的物品
+&7ⓘ 移除: 点击列表中的物品
+&7白名单模式下仅列表内物品可见'
+  upload-list-lore: '&7ⓘ 上传: 保持界面打开，点击背包中的物品
+&7ⓘ 删除: 点击列表中的物品
+&7上传的物品完整保留NBT，不受名单控制'
+  upload-list-empty: '&7暂无上传物品，点击背包中的物品即可上传。'
+  uploaded: '&a已上传物品: &f%item%'
+  upload-duplicate: '&e该物品（含NBT）已存在，未重复上传。'
+  upload-removed: '&7已删除上传物品: &f%item%'
+  upload-click-remove: '&e点击删除该上传物品'
+  custom-item-tag: '&b★ 自定义物品 (含NBT)'
+  custom-name-line: '&7名称: &f%name%'
+  custom-get-lore: '&a点击获取 &e%amount% &a个(原样)'
+  state-white: '&7状态: &a白名单 (始终显示)'
+  flag-set-white: '&a%item% 已加入白名单'
+  source-current: '&7当前: &f'
+  source-both: '原版物品+上传物品'
+  source-vanilla: '仅原版物品'
+  source-custom: '仅上传物品'
+  source-toggled: '&a物品来源已切换为: &f'
+  mode-current: '&7当前: &f'
+  mode-black: '黑名单模式 (未标记的可见)'
+  mode-white: '白名单模式 (仅白名单可见)'
+  mode-toggled: '&a名单模式已切换为: &f'
+  click-cycle: '&e点击切换'
+  filter-name: '&8[ &e只显示背包已有 '
+  filter-on: '&a开 &8]'
+  filter-off: '&c关 &8]'
   # 标题（可用 %page% %max%；搜索另支持 %keyword%）
   title-main: '&8物品 %page%/%max%'
   title-inv: '&8背包物品 %page%/%max%'

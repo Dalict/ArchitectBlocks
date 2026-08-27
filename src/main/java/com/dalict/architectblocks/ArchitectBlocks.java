@@ -10,16 +10,16 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -36,20 +36,21 @@ public class ArchitectBlocks extends JavaPlugin {
     public static final int PAGE_SIZE = 36;
 
     /** 当前默认配置的版本号，用于配置文件升级 */
-    private static final int CONFIG_VERSION = 2;
+    private static final int CONFIG_VERSION = 3;
 
     private ItemRegistry itemRegistry;
     private LangManager lang;
     private ChatInputManager chatInput;
     private Database db;
-    private FileConfiguration playersConfig;
+    private FileConfigurationHolder playersConfig;
     private final Map<UUID, Long> giveCooldown = new HashMap<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         upgradeConfig();
-        loadPlayersFile();
+        playersConfig = new FileConfigurationHolder(this, "players.yml",
+                "可使用 ArchitectBlocks 的玩家名单\n可用 /mats add|remove <玩家名> 管理", "players");
         db = new Database(this);
         db.init();
         lang = new LangManager(this);
@@ -67,6 +68,12 @@ public class ArchitectBlocks extends JavaPlugin {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length > 0 && args[0].equalsIgnoreCase("help")) {
+            for (String line : getConfig().getStringList("messages.help")) {
+                sender.sendMessage(sendable(sender, line));
+            }
+            return true;
+        }
         if (args.length > 0 && (args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
             if (!sender.hasPermission(PERM_ADMIN)) {
                 sender.sendMessage(getMessage("no-permission"));
@@ -80,6 +87,7 @@ public class ArchitectBlocks extends JavaPlugin {
                 return true;
             }
             reloadConfig();
+            playersConfig.reload();
             itemRegistry.reload();
             sendColored(sender, getMessage("reloaded"));
             return true;
@@ -123,6 +131,11 @@ public class ArchitectBlocks extends JavaPlugin {
         return true;
     }
 
+    /** 控制台去色，玩家原样 */
+    private String sendable(CommandSender sender, String msg) {
+        return sender instanceof Player ? color(msg) : ChatColor.stripColor(color(msg));
+    }
+
     /**
      * 使用权限判定（按优先级）：
      * 管理员权限 > 全局允许所有人 > 玩家名单 > architectblocks.use 权限节点
@@ -135,21 +148,21 @@ public class ArchitectBlocks extends JavaPlugin {
             return true;
         }
         if (getConfig().getBoolean("access.use-player-list", true)
-                && playersConfig.getStringList("players").stream()
+                && playersConfig.get().getStringList("players").stream()
                 .anyMatch(name -> name.equalsIgnoreCase(player.getName()))) {
             return true;
         }
         return player.hasPermission(PERM_USE);
     }
 
-    /** 名单增删并保存到 config.yml */
+    /** 名单增删并保存到 players.yml */
     private boolean mutatePlayerList(String[] args, CommandSender sender, boolean add) {
         if (args.length != 2) {
             sender.sendMessage(color("&c用法: /mats " + (add ? "add" : "remove") + " <玩家名>"));
             return true;
         }
         String target = args[1].trim();
-        List<String> players = new ArrayList<>(playersConfig.getStringList("players"));
+        List<String> players = new ArrayList<>(playersConfig.get().getStringList("players"));
         boolean exists = players.stream().anyMatch(n -> n.equalsIgnoreCase(target));
         if (add) {
             if (exists) {
@@ -164,45 +177,10 @@ public class ArchitectBlocks extends JavaPlugin {
             }
             players.removeIf(n -> n.equalsIgnoreCase(target));
         }
-        playersConfig.set("players", players);
-        try {
-            playersConfig.save(new File(getDataFolder(), "players.yml"));
-        } catch (java.io.IOException e) {
-            sender.sendMessage(color("&c保存 players.yml 失败: " + e.getMessage()));
-        }
+        playersConfig.get().set("players", players);
+        playersConfig.save();
         sender.sendMessage(getMessage("access-" + (add ? "added" : "removed")).replace("%player%", target));
         return true;
-    }
-
-    /** 独立的玩家名单文件，避免写回主配置时丢失注释 */
-    private void loadPlayersFile() {
-        File file = new File(getDataFolder(), "players.yml");
-        playersConfig = YamlConfiguration.loadConfiguration(file);
-        playersConfig.options().header("可使用 ArchitectBlocks 的玩家名单\n可用 /mats add|remove <玩家名> 管理");
-        if (!file.exists()) {
-            playersConfig.set("players", new ArrayList<String>());
-            try {
-                playersConfig.save(file);
-            } catch (java.io.IOException e) {
-                getLogger().warning("无法保存 players.yml: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * 配置文件升级：config-version 低于当前版本时，把内置默认配置中缺失的键
-     * 补充到用户配置（用户已有设置全部保留），然后写回并重载。
-     */
-    private void upgradeConfig() {
-        int version = getConfig().getInt("config-version", 1);
-        if (version >= CONFIG_VERSION) {
-            return;
-        }
-        getConfig().options().copyDefaults(true);
-        saveConfig();
-        reloadConfig();
-        getLogger().info("配置文件已从 v" + version + " 升级到 v" + CONFIG_VERSION
-                + "，缺失的默认项已补充，原有设置保留");
     }
 
     private void sendColored(CommandSender sender, String msg) {
@@ -228,7 +206,7 @@ public class ArchitectBlocks extends JavaPlugin {
 
     /** 主菜单（invOnly=false）或背包已有物品视图（invOnly=true） */
     public void openMainMenu(Player player, int page, boolean invOnly) {
-        List<Material> items = invOnly ? itemRegistry.getInventoryVisible(player) : itemRegistry.getVisible();
+        List<ItemEntry> items = invOnly ? itemRegistry.getInventoryVisible(player) : itemRegistry.getVisible();
         int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         if (page < 0) page = 0;
         if (page >= pageCount) page = pageCount - 1;
@@ -253,7 +231,7 @@ public class ArchitectBlocks extends JavaPlugin {
     // ==================== 搜索结果 ====================
 
     public void openSearchMenu(Player player, int page, String keyword) {
-        List<Material> items = itemRegistry.search(keyword);
+        List<ItemEntry> items = itemRegistry.search(keyword);
         int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         if (page < 0) page = 0;
         if (page >= pageCount) page = pageCount - 1;
@@ -288,7 +266,6 @@ public class ArchitectBlocks extends JavaPlugin {
         String title = color(getMessage("title-page-select")
                 .replace("%page%", String.valueOf(selectPage + 1))
                 .replace("%max%", String.valueOf(selectPages)));
-        // 用 invOnly/keyword 编码来源视图：inv=true 为背包视图；keyword!=null 为搜索结果；否则为主页
         boolean fromInv = "inv".equals(sourceView);
         String kw = "search".equals(sourceView) ? keyword : null;
         MenuHolder holder = new MenuHolder(MenuHolder.Type.PAGE_SELECT, selectPage, kw, fromInv);
@@ -330,7 +307,7 @@ public class ArchitectBlocks extends JavaPlugin {
 
     /** 计算某视图的总页数 */
     private int pageCountOf(Player player, String view, String keyword) {
-        List<Material> items;
+        List<ItemEntry> items;
         if ("inv".equals(view)) {
             items = itemRegistry.getInventoryVisible(player);
         } else if ("search".equals(view)) {
@@ -357,63 +334,106 @@ public class ArchitectBlocks extends JavaPlugin {
 
     // ==================== 管理员界面 ====================
 
-    /** 管理主页：刷怪蛋开关 / 管理员物品开关 / 黑名单列表 / 垃圾桶 */
+    /** 管理主页：7 个功能按钮 */
     public void openAdmin(Player player) {
         MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN, 0, null, false);
         Inventory inv = Bukkit.createInventory(holder, 27, color(getMessage("title-admin")));
         holder.setInventory(inv);
 
-        inv.setItem(11, icon(material("eggs-toggle", Material.CREEPER_SPAWN_EGG),
+        inv.setItem(10, icon(material("eggs-toggle", Material.CREEPER_SPAWN_EGG),
                 color(getGuiConfigString("names.eggs-toggle", "&8[ &d允许刷怪蛋 &8]")),
                 stateLine(itemRegistry.isAllowSpawnEggs()),
                 color(getMessage("eggs-toggle-lore")),
                 color(getMessage("click-toggle"))));
-        inv.setItem(13, icon(material("admin-items-toggle", Material.COMMAND_BLOCK),
+        inv.setItem(11, icon(material("admin-items-toggle", Material.COMMAND_BLOCK),
                 color(getGuiConfigString("names.admin-items-toggle", "&8[ &4允许管理员物品 &8]")),
                 stateLine(itemRegistry.isAllowAdminItems()),
                 color(getMessage("admin-items-lore")),
                 color(getMessage("click-toggle"))));
-        inv.setItem(15, icon(material("blacklist-button", Material.BLACK_WOOL),
+        inv.setItem(12, icon(material("blacklist-button", Material.BLACK_WOOL),
                 color(getGuiConfigString("names.blacklist-list", "&8[ &c物品黑名单列表 &8]")),
                 color(getMessage("blacklist-list-lore"))));
+        inv.setItem(13, icon(material("whitelist-button", Material.WHITE_WOOL),
+                color(getGuiConfigString("names.whitelist-list", "&8[ &f物品白名单列表 &8]")),
+                color(getMessage("whitelist-list-lore"))));
+        inv.setItem(14, icon(material("upload-button", Material.CHEST),
+                color(getGuiConfigString("names.upload-list", "&8[ &b上传物品管理 &8]")),
+                color(getMessage("upload-list-lore"))));
+        inv.setItem(15, icon(material("source-button", Material.BOOKSHELF),
+                color(getGuiConfigString("names.source-toggle", "&8[ &6物品来源 &8]")),
+                color(getMessage("source-current") + sourceName(itemRegistry.getItemSource())),
+                color(getMessage("click-cycle"))));
+        inv.setItem(16, icon(material("mode-button", Material.LEVER),
+                color(getGuiConfigString("names.mode-toggle", "&8[ &e名单模式 &8]")),
+                color(getMessage("mode-current") + modeName(itemRegistry.isWhiteMode())),
+                color(getMessage("click-cycle"))));
         inv.setItem(22, icon(material("close-button", Material.BARRIER),
                 color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
         fillPanes(inv, 18, 26, 22);
         player.openInventory(inv);
     }
 
-    /** 黑名单管理页：点击列表物品移出，界面开着点背包物品加入 */
-    public void openAdminList(Player player, int page) {
-        List<Material> items = collectBlacklisted();
+    public String sourceName(String source) {
+        switch (source) {
+            case "vanilla": return color(getMessage("source-vanilla"));
+            case "custom": return color(getMessage("source-custom"));
+            default: return color(getMessage("source-both"));
+        }
+    }
+
+    public String modeName(boolean white) {
+        return color(white ? getMessage("mode-white") : getMessage("mode-black"));
+    }
+
+    /**
+     * 名单/上传管理页（black / white / upload 三种模式）。
+     * 点击列表中的物品 = 移出对应名单/删除上传；保持界面打开点击背包物品 = 加入名单/上传。
+     */
+    public void openAdminList(Player player, int page, String mode, boolean invFilter) {
+        List<ItemEntry> items = buildAdminListEntries(player, mode, invFilter);
         int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         if (page < 0) page = 0;
         if (page >= pageCount) page = pageCount - 1;
 
-        String title = color(getMessage("title-admin-list")
+        String titleKey = "white".equals(mode) ? "title-admin-list-white"
+                : "upload".equals(mode) ? "title-admin-upload" : "title-admin-list";
+        String title = color(getMessage(titleKey)
                 .replace("%page%", String.valueOf(page + 1))
-                .replace("%max%", String.valueOf(pageCount)));
-        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_LIST, page, null, false);
+                .replace("%max%", String.valueOf(pageCount))
+                .replace("%filter%", invFilter ? getMessage("filter-on") : getMessage("filter-off")));
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.ADMIN_LIST, page, null, false, mode, invFilter);
         Inventory inv = Bukkit.createInventory(holder, 54, title);
         holder.setInventory(inv);
 
         if (items.isEmpty()) {
-            player.sendMessage(getMessage("list-empty"));
+            player.sendMessage(getMessage("upload".equals(mode) ? "upload-list-empty" : "list-empty"));
         }
         for (int i = 0; i < PAGE_SIZE; i++) {
             int index = page * PAGE_SIZE + i;
             if (index >= items.size()) break;
-            Material mat = items.get(index);
+            ItemEntry entry = items.get(index);
             List<String> lore = new ArrayList<>();
-            lore.add(getMessage("state-black"));
+            if (entry.isCustom()) {
+                lore.add(color(getMessage("custom-item-tag")));
+                if (entry.customName != null) {
+                    lore.add(color(getMessage("custom-name-line").replace("%name%", entry.customName)));
+                }
+            } else if ("white".equals(mode)) {
+                lore.add(getMessage("state-white"));
+            } else {
+                lore.add(getMessage("state-black"));
+            }
             lore.add("");
-            lore.add(color(getMessage("list-click-remove")));
-            inv.setItem(ITEM_SLOT_START + i, icon(mat, null, lore.toArray(new String[0])));
+            lore.add(color(getMessage("upload".equals(mode) ? "upload-click-remove" : "list-click-remove")));
+            inv.setItem(ITEM_SLOT_START + i, entryIcon(entry, lore));
         }
 
         inv.setItem(0, icon(material("close-button", Material.BARRIER),
                 color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
         inv.setItem(8, icon(material("back-button", Material.COMPASS),
                 color(getGuiConfigString("names.back", "&8[ &e返回 &8]"))));
+        inv.setItem(45, icon(material("filter-button", Material.HOPPER),
+                color(getMessage("filter-name")) + (invFilter ? getMessage("filter-on") : getMessage("filter-off"))));
         if (pageCount > 1) {
             inv.setItem(48, icon(material("prev-button", Material.ARROW),
                     color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
@@ -421,8 +441,34 @@ public class ArchitectBlocks extends JavaPlugin {
                     color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
         }
         fillPanes(inv, 0, 8, 0, 8);
-        fillPanes(inv, 45, 53, 48, 50);
+        fillPanes(inv, 45, 53, 45, 48, 50);
         player.openInventory(inv);
+    }
+
+    /** 名单/上传管理页的数据列表（含背包过滤） */
+    public List<ItemEntry> buildAdminListEntries(Player player, String mode, boolean invFilter) {
+        List<ItemEntry> items = new ArrayList<>();
+        if ("upload".equals(mode)) {
+            items.addAll(itemRegistry.getCustoms());
+        } else {
+            MaterialFlag want = "white".equals(mode) ? MaterialFlag.WHITE : MaterialFlag.BLACK;
+            for (Material mat : Material.values()) {
+                if (mat.isItem() && !mat.isAir() && db.getFlag(mat) == want) {
+                    items.add(ItemEntry.vanilla(mat));
+                }
+            }
+            items.sort((a, b) -> a.material.name().compareTo(b.material.name()));
+        }
+        if (invFilter) {
+            Set<Material> owned = new LinkedHashSet<>();
+            for (ItemStack item : player.getInventory().getContents()) {
+                if (item != null && !item.getType().isAir()) {
+                    owned.add(item.getType());
+                }
+            }
+            items.removeIf(e -> !owned.contains(e.material));
+        }
+        return items;
     }
 
     /** 全量枚举中收集黑名单物品（字母序） */
@@ -547,17 +593,37 @@ public class ArchitectBlocks extends JavaPlugin {
         return lines.toArray(new String[0]);
     }
 
-    /** 填充物品网格（lore 数量按最大堆叠自适应） */
-    private void fillItems(Inventory inv, List<Material> items, int page) {
+    /** 填充物品网格：原版物品按数量 lore，自定义物品原样展示并附加获取提示 */
+    private void fillItems(Inventory inv, List<ItemEntry> items, int page) {
         int amount = getClickAmount();
         for (int i = 0; i < PAGE_SIZE; i++) {
             int index = page * PAGE_SIZE + i;
             if (index >= items.size()) break;
-            Material mat = items.get(index);
-            int shown = Math.min(amount, mat.getMaxStackSize());
-            String lore = color(getMessage("item-lore").replace("%amount%", String.valueOf(shown)));
-            inv.setItem(ITEM_SLOT_START + i, icon(mat, null, lore));
+            ItemEntry entry = items.get(index);
+            if (entry.isCustom()) {
+                List<String> lore = new ArrayList<>();
+                lore.add(color(getMessage("custom-get-lore")
+                        .replace("%amount%", String.valueOf(entry.custom.getAmount()))));
+                inv.setItem(ITEM_SLOT_START + i, entryIcon(entry, lore));
+            } else {
+                Material mat = entry.material;
+                int shown = Math.min(amount, mat.getMaxStackSize());
+                String lore = color(getMessage("item-lore").replace("%amount%", String.valueOf(shown)));
+                inv.setItem(ITEM_SLOT_START + i, icon(mat, null, lore));
+            }
         }
+    }
+
+    /** 自定义物品图标：克隆原物品（保留 NBT 与名称），附加 lore */
+    private ItemStack entryIcon(ItemEntry entry, List<String> lore) {
+        ItemStack item = entry.custom.clone();
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setLore(lore);
+            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     private String stateLine(boolean on) {
@@ -636,7 +702,7 @@ public class ArchitectBlocks extends JavaPlugin {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> result = new ArrayList<>();
         if (args.length == 1) {
-            List<String> subs = new ArrayList<>(Arrays.asList("reload", "trash"));
+            List<String> subs = new ArrayList<>(Arrays.asList("help", "reload", "trash"));
             if (sender.hasPermission(PERM_ADMIN)) {
                 subs.addAll(Arrays.asList("admin", "add", "remove"));
             }
@@ -696,5 +762,21 @@ public class ArchitectBlocks extends JavaPlugin {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /**
+     * 配置文件升级：config-version 低于当前版本时，把内置默认配置中缺失的键
+     * 补充到用户配置（用户已有设置全部保留），然后写回并重载。
+     */
+    private void upgradeConfig() {
+        int version = getConfig().getInt("config-version", 1);
+        if (version >= CONFIG_VERSION) {
+            return;
+        }
+        getConfig().options().copyDefaults(true);
+        saveConfig();
+        reloadConfig();
+        getLogger().info("配置文件已从 v" + version + " 升级到 v" + CONFIG_VERSION
+                + "，缺失的默认项已补充，原有设置保留");
     }
 }

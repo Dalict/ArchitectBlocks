@@ -9,7 +9,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -92,6 +94,10 @@ public class Database {
                 + " PRIMARY KEY(uuid, view))";
         String viewTable = "CREATE TABLE IF NOT EXISTS ab_view ("
                 + "uuid VARCHAR(40) PRIMARY KEY, view VARCHAR(16) NOT NULL, keyword VARCHAR(64))";
+        // 管理员上传的自定义物品（Base64 完整序列化，含 NBT）
+        String customTable = mysql
+                ? "CREATE TABLE IF NOT EXISTS ab_custom_items (id INT AUTO_INCREMENT PRIMARY KEY, base64 MEDIUMTEXT, name VARCHAR(255) NULL)"
+                : "CREATE TABLE IF NOT EXISTS ab_custom_items (id INTEGER PRIMARY KEY AUTOINCREMENT, base64 TEXT, name VARCHAR(255) NULL)";
         try (Statement st = conn.createStatement()) {
             st.execute(settingsTable);
             st.execute(flagsTable);
@@ -100,6 +106,7 @@ public class Database {
             st.execute(langTable);
             st.execute(viewPagesTable);
             st.execute(viewTable);
+            st.execute(customTable);
         }
     }
 
@@ -258,7 +265,57 @@ public class Database {
                 });
     }
 
-    /** 从数据库读取语言缓存表 */    /** 从数据库读取语言缓存表 */
+    /** 读取全部自定义物品原始记录：[id, base64, name] */
+    public List<String[]> loadCustomRaw() {
+        List<String[]> out = new ArrayList<>();
+        if (conn == null) {
+            return out;
+        }
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT id, base64, name FROM ab_custom_items ORDER BY id")) {
+            while (rs.next()) {
+                out.add(new String[]{String.valueOf(rs.getInt(1)), rs.getString(2), rs.getString(3)});
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("自定义物品读取失败: " + e.getMessage());
+        }
+        return out;
+    }
+
+    /** 新增自定义物品 */
+    public void addCustom(String base64, String name) {
+        if (conn == null) {
+            plugin.getLogger().warning("无数据库连接，无法保存自定义物品");
+            return;
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO ab_custom_items(base64, name) VALUES(?, ?)")) {
+            ps.setString(1, base64);
+            if (name == null || name.isEmpty()) {
+                ps.setString(2, null);
+            } else {
+                ps.setString(2, name);
+            }
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().warning("自定义物品写入失败: " + e.getMessage());
+        }
+    }
+
+    /** 删除自定义物品 */
+    public void removeCustom(int id) {
+        if (conn == null) {
+            return;
+        }
+        try (PreparedStatement ps = conn.prepareStatement("DELETE FROM ab_custom_items WHERE id = ?")) {
+            ps.setInt(1, id);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().warning("自定义物品删除失败: " + e.getMessage());
+        }
+    }
+
+    /** 从数据库读取语言缓存表 */
     public Map<String, String> loadLang(String code) {
         Map<String, String> out = new HashMap<>();
         if (conn == null) {
