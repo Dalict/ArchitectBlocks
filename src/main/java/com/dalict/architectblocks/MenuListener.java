@@ -1,5 +1,6 @@
 package com.dalict.architectblocks;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -130,6 +131,14 @@ public class MenuListener implements Listener {
             case ADMIN_LIST:
                 handleAdminList(player, holder, slot);
                 break;
+            case FLIGHT:
+                player.closeInventory(); // 先关再开，避免快速点击窗口残留
+                Bukkit.getScheduler().runTask(plugin,
+                        () -> plugin.handleFlightClick(player, slot));
+                break;
+            case ACCESS_LIST:
+                plugin.handleAccessListClick(player, holder.getPage(), slot);
+                break;
         }
     }
 
@@ -147,6 +156,10 @@ public class MenuListener implements Listener {
         }
         if (slot == 1 && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
             plugin.openAdmin(player);
+            return;
+        }
+        if (slot == 4) {
+            plugin.openFlightMenu(player);
             return;
         }
         if (slot == 45) {

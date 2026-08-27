@@ -6,12 +6,13 @@ import org.bukkit.inventory.InventoryHolder;
 /**
  * 菜单标识。
  * listMode 仅用于 ADMIN_LIST：black / white / upload；
- * invFilter 用于 ADMIN_LIST 的"只显示背包已有"过滤。
+ * invFilter 用于 ADMIN_LIST 的"只显示背包已有"过滤；
+ * viewKey 仅用于 FLIGHT（进入前的来源视图编码）。
  */
 public class MenuHolder implements InventoryHolder {
 
     public enum Type {
-        MAIN, SEARCH, PAGE_SELECT, TRASH, ADMIN, ADMIN_LIST
+        MAIN, SEARCH, PAGE_SELECT, TRASH, ADMIN, ADMIN_LIST, FLIGHT, ACCESS_LIST
     }
 
     private final Type type;

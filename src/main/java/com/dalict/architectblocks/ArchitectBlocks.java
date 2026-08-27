@@ -42,15 +42,15 @@ public class ArchitectBlocks extends JavaPlugin {
     private LangManager lang;
     private ChatInputManager chatInput;
     private Database db;
-    private FileConfigurationHolder playersConfig;
+    private QuickItemListener quickItem;
+    private Object expansionRef;
     private final Map<UUID, Long> giveCooldown = new HashMap<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         upgradeConfig();
-        playersConfig = new FileConfigurationHolder(this, "players.yml",
-                "可使用 ArchitectBlocks 的玩家名单\n可用 /mats add|remove <玩家名> 管理", "players");
+        migratePlayersYml();
         db = new Database(this);
         db.init();
         lang = new LangManager(this);
@@ -59,10 +59,13 @@ public class ArchitectBlocks extends JavaPlugin {
         // 异步下载配置的搜索语言文件（官方源，BMCLAPI 优先回退 Mojang）
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> lang.downloadConfiguredLanguages());
         chatInput = new ChatInputManager(this);
+        quickItem = new QuickItemListener(this);
         Bukkit.getPluginManager().registerEvents(new MenuListener(this), this);
         Bukkit.getPluginManager().registerEvents(chatInput, this);
+        Bukkit.getPluginManager().registerEvents(quickItem, this);
         getCommand("mats").setExecutor(this);
         getCommand("mats").setTabCompleter(this);
+        registerPapi();
         getLogger().info("ArchitectBlocks 已启用，作者 Dalict");
     }
 
@@ -91,9 +94,13 @@ public class ArchitectBlocks extends JavaPlugin {
                 saveDefaultConfig();
                 sender.sendMessage(color("&aconfig.yml 不存在，已重新生成默认配置。"));
             }
+            if (!new File(getDataFolder(), "config.yml").isFile()) {
+                saveDefaultConfig();
+                sender.sendMessage(color("&aconfig.yml 不存在，已重新生成默认配置。"));
+            }
             reloadConfig();
             upgradeConfig();
-            playersConfig.reload();
+            lang.clearCache();
             itemRegistry.reload();
             sendColored(sender, getMessage("reloaded"));
             return true;
@@ -144,7 +151,7 @@ public class ArchitectBlocks extends JavaPlugin {
 
     /**
      * 使用权限判定（按优先级）：
-     * 管理员权限 > 全局允许所有人 > 玩家名单 > architectblocks.use 权限节点
+     * 管理员权限 > 全局允许所有人 > 数据库授权名单 > architectblocks.use 权限节点
      */
     public boolean canUse(Player player) {
         if (player.hasPermission(PERM_ADMIN)) {
@@ -154,38 +161,85 @@ public class ArchitectBlocks extends JavaPlugin {
             return true;
         }
         if (getConfig().getBoolean("access.use-player-list", true)
-                && playersConfig.get().getStringList("players").stream()
-                .anyMatch(name -> name.equalsIgnoreCase(player.getName()))) {
+                && db.isAccessGranted(player.getName())) {
             return true;
         }
         return player.hasPermission(PERM_USE);
     }
 
-    /** 名单增删并保存到 players.yml */
+    /** 授权剩余文本：永久 / N天 / 未授权 */
+    public String getAccessExpireText(Player player) {
+        String[] rec = db.getAccessRecord(player.getName());
+        if (rec == null) {
+            return getMessage("expire-none");
+        }
+        return expireText(Long.parseLong(rec[1]));
+    }
+
+    public String expireText(long expires) {
+        if (expires == 0) {
+            return getMessage("expire-permanent");
+        }
+        long days = (expires - System.currentTimeMillis()) / 86400000L + 1;
+        return getMessage("expire-days").replace("%days%", String.valueOf(Math.max(1, days)));
+    }
+
+    /** 旧 players.yml 授权名单一次性迁移到数据库后重命名备份 */
+    private void migratePlayersYml() {
+        File oldFile = new File(getDataFolder(), "players.yml");
+        if (!oldFile.isFile()) {
+            return;
+        }
+        try {
+            org.bukkit.configuration.file.YamlConfiguration cfg =
+                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(oldFile);
+            List<String> names = cfg.getStringList("players");
+            for (String name : names) {
+                db.grantAccess(name.trim(), 0);
+            }
+            if (!names.isEmpty()) {
+                getLogger().info("已将 players.yml 的 " + names.size() + " 名授权玩家迁移到数据库");
+            }
+            java.nio.file.Files.move(oldFile.toPath(),
+                    new File(getDataFolder(), "players.yml.migrated").toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            getLogger().warning("players.yml 迁移失败: " + e.getMessage());
+        }
+    }
+
+    /** 名单增删（写入数据库）；add 可带 [天数]，0/缺省为永久 */
     private boolean mutatePlayerList(String[] args, CommandSender sender, boolean add) {
-        if (args.length != 2) {
-            sender.sendMessage(color("&c用法: /mats " + (add ? "add" : "remove") + " <玩家名>"));
+        if (args.length < 2) {
+            sender.sendMessage(color("&c用法: /mats " + (add ? "add" : "remove")
+                    + " <玩家名>" + (add ? " [天数]" : "")));
             return true;
         }
         String target = args[1].trim();
-        List<String> players = new ArrayList<>(playersConfig.get().getStringList("players"));
-        boolean exists = players.stream().anyMatch(n -> n.equalsIgnoreCase(target));
-        if (add) {
-            if (exists) {
-                sender.sendMessage(getMessage("access-duplicate").replace("%player%", target));
+        long days = 0;
+        if (add && args.length >= 3) {
+            try {
+                days = Long.parseLong(args[2]);
+                if (days < 0) days = 0;
+            } catch (NumberFormatException e) {
+                sender.sendMessage(color("&c天数必须是数字: " + args[2]));
                 return true;
             }
-            players.add(target);
-        } else {
-            if (!exists) {
-                sender.sendMessage(getMessage("access-not-in-list").replace("%player%", target));
-                return true;
-            }
-            players.removeIf(n -> n.equalsIgnoreCase(target));
         }
-        playersConfig.get().set("players", players);
-        playersConfig.save();
-        sender.sendMessage(getMessage("access-" + (add ? "added" : "removed")).replace("%player%", target));
+        if (add) {
+            db.grantAccess(target, days);
+            String expire = days == 0 ? getMessage("expire-permanent")
+                    : getMessage("expire-days").replace("%days%", String.valueOf(days));
+            sender.sendMessage(color("&a已授权 &f" + target + " &7(" + expire + ")"));
+            Player online = Bukkit.getPlayerExact(target);
+            if (online != null) {
+                giveQuickItem(online);
+            }
+        } else {
+            String[] rec = db.getAccessRecord(target);
+            db.removeAccess(rec != null ? rec[0] : target);
+            sender.sendMessage(color("&a已移除 &f" + target + " &a的授权。"));
+        }
         return true;
     }
 
@@ -491,6 +545,12 @@ public class ArchitectBlocks extends JavaPlugin {
             inv.setItem(1, icon(material("admin-button", Material.COMMAND_BLOCK),
                     color(getGuiConfigString("names.admin", "&8[ &c管理员设置 &8]"))));
         }
+        inv.setItem(4, icon(material("flight-menu-button", Material.FEATHER),
+                color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
+                color(getMessage("flight-lore"))));
+        inv.setItem(4, icon(material("flight-menu-button", Material.FEATHER),
+                color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
+                color(getMessage("flight-lore"))));
         inv.setItem(8, icon(material("search-button", Material.COMPASS),
                 color(getGuiConfigString("names.search", "&8[ &b搜索 &8]")),
                 searchLore(player)));
@@ -512,6 +572,7 @@ public class ArchitectBlocks extends JavaPlugin {
                 color(getMessage("trash-lore"))));
         List<Integer> reservedTop = new ArrayList<>();
         reservedTop.add(0);
+        reservedTop.add(4);
         reservedTop.add(8);
         if (isAdmin) reservedTop.add(1);
         fillPanes(inv, 0, 8, toInts(reservedTop));
@@ -588,6 +649,208 @@ public class ArchitectBlocks extends JavaPlugin {
         }
         lines.add(color(getMessage("search-lore-line2").replace("%languages%", langs.toString())));
         return lines.toArray(new String[0]);
+    }
+
+    // ==================== 飞行设置菜单 ====================
+
+    /** 飞行设置界面：开关飞行、三档速度、永久夜视开关。不记忆状态。 */
+    public void openFlightMenu(Player player) {
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.FLIGHT, 0, null, false);
+        Inventory inv = Bukkit.createInventory(holder, 27, color(getMessage("title-flight")));
+        holder.setInventory(inv);
+
+        boolean allowFlight = player.getAllowFlight();
+        inv.setItem(10, icon(material("flight-toggle", Material.FEATHER),
+                color(getMessage(allowFlight ? "flight-on-name" : "flight-off-name")),
+                color(getMessage(allowFlight ? "flight-on-state" : "flight-off-state")),
+                color(getMessage("click-cycle"))));
+
+        float[] speedValues = {0.1f, 0.25f, 0.5f};
+        int[] speedSlots = {12, 13, 14};
+        String[] speedKeys = {"speed-1-name", "speed-2-name", "speed-3-name"};
+        for (int i = 0; i < 3; i++) {
+            boolean current = Math.abs(player.getFlySpeed() - speedValues[i]) < 0.01f;
+            inv.setItem(speedSlots[i], icon(material("fly-speed-button", Material.SUGAR),
+                    color(getMessage(speedKeys[i])),
+                    color(current ? getMessage("speed-current") : getMessage("speed-select"))));
+        }
+
+        boolean nightVision = player.hasPotionEffect(org.bukkit.potion.PotionEffectType.NIGHT_VISION);
+        inv.setItem(16, icon(material("night-vision-toggle", Material.ENDER_EYE),
+                color(nightVision ? getMessage("nv-on-name") : getMessage("nv-off-name")),
+                color(nightVision ? getMessage("nv-on-state") : getMessage("nv-off-state")),
+                color(getMessage("click-toggle"))));
+
+        inv.setItem(22, icon(material("back-button", Material.COMPASS),
+                color(getGuiConfigString("names.back-main", "&8[ &e返回主界面 &8]"))));
+        fillPanes(inv, 18, 26, 22);
+        player.openInventory(inv);
+    }
+
+    /** 飞行菜单点击处理 */
+    public void handleFlightClick(Player player, int slot) {
+        switch (slot) {
+            case 10: {
+                boolean enable = !player.getAllowFlight();
+                player.setAllowFlight(enable);
+                player.setFlying(enable && player.isOnGround());
+                player.sendMessage(color(enable
+                        ? getMessage("flight-toggled-on")
+                        : getMessage("flight-toggled-off")));
+                reopenFlightMenu(player);
+                return;
+            }
+            case 12:
+            case 13:
+            case 14: {
+                float speed = slot == 12 ? 0.1f : slot == 13 ? 0.25f : 0.5f;
+                player.setFlySpeed(speed);
+                String key = slot == 12 ? "speed-1-name" : slot == 13 ? "speed-2-name" : "speed-3-name";
+                player.sendMessage(color(getMessage("speed-set").replace("%speed%", getMessage(key))));
+                reopenFlightMenu(player);
+                return;
+            }
+            case 16: {
+                org.bukkit.potion.PotionEffectType nv = org.bukkit.potion.PotionEffectType.NIGHT_VISION;
+                if (player.hasPotionEffect(nv)) {
+                    player.removePotionEffect(nv);
+                    player.sendMessage(color(getMessage("nv-toggled-off")));
+                } else {
+                    player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                            nv, org.bukkit.potion.PotionEffect.INFINITE_DURATION, 0, false, false, false));
+                    player.sendMessage(color(getMessage("nv-toggled-on")));
+                }
+                reopenFlightMenu(player);
+                return;
+            }
+            case 22:
+                openMainMenu(player, db.getPage(player.getUniqueId(), "main"), false);
+                return;
+        }
+    }
+
+    private void reopenFlightMenu(Player player) {
+        Bukkit.getScheduler().runTask(this, () -> {
+            if (player.isOnline()) {
+                openFlightMenu(player);
+            }
+        });
+    }
+
+    // ==================== 授权玩家管理菜单 ====================
+
+    /** 授权名单管理页：显示玩家与剩余时间，点击移除授权。不记忆状态。 */
+    public void openAccessList(Player player, int page) {
+        List<String[]> records = db.loadAllAccess();
+        int pageCount = Math.max(1, (records.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        if (page < 0) page = 0;
+        if (page >= pageCount) page = pageCount - 1;
+
+        String title = color(getMessage("title-access-list")
+                .replace("%page%", String.valueOf(page + 1))
+                .replace("%max%", String.valueOf(pageCount)));
+        MenuHolder holder = new MenuHolder(MenuHolder.Type.ACCESS_LIST, page, null, false);
+        Inventory inv = Bukkit.createInventory(holder, 54, title);
+        holder.setInventory(inv);
+
+        if (records.isEmpty()) {
+            player.sendMessage(getMessage("access-list-empty"));
+        }
+        for (int i = 0; i < PAGE_SIZE; i++) {
+            int index = page * PAGE_SIZE + i;
+            if (index >= records.size()) break;
+            String name = records.get(index)[0];
+            long expires = Long.parseLong(records.get(index)[1]);
+            inv.setItem(ITEM_SLOT_START + i, icon(Material.NAME_TAG, color("&f" + name),
+                    color(getMessage("access-expire-line").replace("%expire%", expireText(expires))),
+                    color(getMessage("list-click-remove"))));
+        }
+
+        inv.setItem(0, icon(material("close-button", Material.BARRIER),
+                color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
+        inv.setItem(8, icon(material("back-button", Material.COMPASS),
+                color(getGuiConfigString("names.back-admin", "&8[ &a返回管理主页 &8]"))));
+        if (pageCount > 1) {
+            inv.setItem(48, icon(material("prev-button", Material.ARROW),
+                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
+            inv.setItem(50, icon(material("next-button", Material.ARROW),
+                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
+        }
+        fillPanes(inv, 0, 8, 0, 8);
+        fillPanes(inv, 45, 53, 48, 50);
+        player.openInventory(inv);
+    }
+
+    /** 授权名单点击处理：移除授权 */
+    public void handleAccessListClick(Player player, int page, int slot) {
+        List<String[]> records = db.loadAllAccess();
+        int pageCount = Math.max(1, (records.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        if (slot == 48 && pageCount > 1) {
+            openAccessList(player, (page - 1 + pageCount) % pageCount);
+            return;
+        }
+        if (slot == 50 && pageCount > 1) {
+            openAccessList(player, (page + 1) % pageCount);
+            return;
+        }
+        int offset = slot - ITEM_SLOT_START;
+        if (offset < 0 || offset >= PAGE_SIZE) {
+            return;
+        }
+        int index = page * PAGE_SIZE + offset;
+        if (index >= records.size()) {
+            return;
+        }
+        String name = records.get(index)[0];
+        db.removeAccess(name);
+        player.sendMessage(color("&a已移除 &f" + name + " &a的授权。"));
+        openAccessList(player, page);
+    }
+
+    // ==================== PAPI ====================
+
+    private void registerPapi() {
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") == null) {
+            getLogger().info("未检测到 PlaceholderAPI，变量功能不可用");
+            return;
+        }
+        try {
+            Class<?> cls = Class.forName("com.dalict.architectblocks.ABExpansion");
+            Object expansion = cls.getDeclaredConstructor(ArchitectBlocks.class).newInstance(this);
+            cls.getMethod("register").invoke(expansion);
+            expansionRef = expansion;
+            getLogger().info("已注册 PlaceholderAPI 变量 (%architectblocks_authorized% 等)");
+        } catch (Throwable t) {
+            getLogger().warning("PlaceholderAPI 变量注册失败: " + t.getMessage());
+        }
+    }
+
+    /** 给予快捷物品（已持有则跳过） */
+    public void giveQuickItem(Player player) {
+        if (quickItem == null || hasQuickItem(player)) {
+            return;
+        }
+        Map<Integer, ItemStack> leftover =
+                player.getInventory().addItem(quickItem.createItem());
+        for (ItemStack rest : leftover.values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), rest);
+        }
+    }
+
+    public boolean hasQuickItem(Player player) {
+        if (quickItem == null) {
+            return false;
+        }
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (quickItem.isQuickItem(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public QuickItemListener getQuickItem() {
+        return quickItem;
     }
 
     /** 填充物品网格：原版物品按数量 lore，自定义物品原样展示并附加获取提示 */

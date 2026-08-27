@@ -102,7 +102,9 @@ public class Database {
                 + " PRIMARY KEY(uuid, view))";
         String viewTable = "CREATE TABLE IF NOT EXISTS ab_view ("
                 + "uuid VARCHAR(40) PRIMARY KEY, view VARCHAR(16) NOT NULL, keyword VARCHAR(64))";
-        // 管理员上传的自定义物品（Base64 完整序列化，含 NBT）
+        // 授权名单：name=玩家名(忽略大小写匹配)，expires=过期时间戳毫秒（0=永久）
+        String accessTable = "CREATE TABLE IF NOT EXISTS ab_access ("
+                + "player VARCHAR(32) PRIMARY KEY, expires INTEGER NOT NULL)";
         String customTable = mysql
                 ? "CREATE TABLE IF NOT EXISTS ab_custom_items (id INT AUTO_INCREMENT PRIMARY KEY, base64 MEDIUMTEXT, name VARCHAR(255) NULL)"
                 : "CREATE TABLE IF NOT EXISTS ab_custom_items (id INTEGER PRIMARY KEY AUTOINCREMENT, base64 TEXT, name VARCHAR(255) NULL)";
@@ -128,6 +130,7 @@ public class Database {
             st.execute(viewPagesTable);
             st.execute(viewTable);
             st.execute(customTable);
+            st.execute(accessTable);
         }
     }
 
@@ -342,6 +345,75 @@ public class Database {
         } catch (SQLException e) {
             plugin.getLogger().warning("自定义物品删除失败: " + e.getMessage());
         }
+    }
+
+    /** 判定玩家名是否在授权名单内且未过期（按名称忽略大小写匹配） */
+    public boolean isAccessGranted(String playerName) {
+        String[] rec = getAccessRecord(playerName);
+        if (rec == null) {
+            return false;
+        }
+        long expires = Long.parseLong(rec[1]);
+        if (expires != 0 && expires <= System.currentTimeMillis()) {
+            removeAccess(rec[0]); // 过期自动清理
+            return false;
+        }
+        return true;
+    }
+
+    /** 按名称查找授权记录（忽略大小写）：[存储名, expires]，找不到返回 null */
+    public String[] getAccessRecord(String playerName) {
+        for (String[] row : loadAllAccess()) {
+            if (row[0].equalsIgnoreCase(playerName)) {
+                return row;
+            }
+        }
+        return null;
+    }
+
+    /** 授权：days<=0 表示永久 */
+    public void grantAccess(String playerName, long days) {
+        final long expires = days <= 0 ? 0 : System.currentTimeMillis() + days * 86400000L;
+        asyncUpdate("INSERT INTO ab_access(player, expires) VALUES(?, ?)"
+                        + (mysql ? " ON DUPLICATE KEY UPDATE expires = VALUES(expires)"
+                                 : " ON CONFLICT(player) DO UPDATE SET expires = excluded.expires"),
+                ps -> {
+                    try {
+                        ps.setString(1, playerName);
+                        ps.setLong(2, expires);
+                        ps.executeUpdate();
+                    } catch (SQLException e) {
+                        plugin.getLogger().warning("授权写入失败: " + e.getMessage());
+                    }
+                });
+    }
+
+    public void removeAccess(String playerName) {
+        asyncUpdate("DELETE FROM ab_access WHERE player = ? COLLATE NOCASE", ps -> {
+            try {
+                ps.setString(1, playerName);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().warning("授权移除失败: " + e.getMessage());
+            }
+        });
+    }
+
+    /** 全部授权记录：[name, expires] */
+    public List<String[]> loadAllAccess() {
+        List<String[]> out = new ArrayList<>();
+        if (conn == null) {
+            return out;
+        }
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT player, expires FROM ab_access ORDER BY player")) {
+            while (rs.next()) {
+                out.add(new String[]{rs.getString(1), String.valueOf(rs.getLong(2))});
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("授权列表读取失败: " + e.getMessage());
+        }
+        return out;
     }
 
     /** 从数据库读取语言缓存表 */
