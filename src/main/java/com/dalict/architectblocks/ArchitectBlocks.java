@@ -730,22 +730,16 @@ public class ArchitectBlocks extends JavaPlugin {
                 color(nightVision ? getMessage("nv-on-state") : getMessage("nv-off-state")),
                 color(getMessage("click-toggle"))));
 
-        // 发放快捷物品按钮：快捷物品禁用时自动隐藏
-        java.util.List<Integer> reservedBottom = new java.util.ArrayList<>();
-        reservedBottom.add(22);
+        // 发放快捷物品按钮（4 号位顶排中央）：快捷物品禁用时自动隐藏
         if (getConfig().getBoolean("quick-item.enabled", true)) {
-            inv.setItem(19, icon(material("give-quick-button", Material.KNOWLEDGE_BOOK),
+            inv.setItem(4, icon(material("give-quick-button", Material.KNOWLEDGE_BOOK),
                     color(getGuiConfigString("names.give-quick", "&8[ &e发放快捷物品 &8]")),
                     color(getMessage("give-quick-lore"))));
-            reservedBottom.add(19);
         }
         inv.setItem(22, icon(material("back-button", Material.COMPASS),
                 color(getGuiConfigString("names.back-main", "&8[ &e返回主界面 &8]"))));
-        int[] reserved = new int[reservedBottom.size()];
-        for (int i = 0; i < reserved.length; i++) {
-            reserved[i] = reservedBottom.get(i);
-        }
-        fillPanes(inv, 18, 26, reserved);
+        fillPanes(inv, 0, 8, 4);
+        fillPanes(inv, 18, 26, 22);
         player.openInventory(inv);
     }
 
@@ -785,7 +779,7 @@ public class ArchitectBlocks extends JavaPlugin {
                 reopenFlightMenu(player);
                 return;
             }
-            case 19:
+            case 4:
                 giveQuickItem(player);
                 reopenFlightMenu(player);
                 return;
