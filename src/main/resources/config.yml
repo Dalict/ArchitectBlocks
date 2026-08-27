@@ -1,9 +1,6 @@
 # ArchitectBlocks 配置
 # 作者: Dalict
 
-# 配置版本号（插件自动升级配置时使用，请勿手动修改）
-config-version: 4
-
 # 访问控制
 # 菜单与所有功能：architectblocks.admin 或 use 权限 或 全局允许 或 授权名单
 # 快捷物品发放（严格）：use 权限 或 全局允许 或 授权名单（admin 不隐式放行）

@@ -361,14 +361,25 @@ public class Database {
         return true;
     }
 
-    /** 按名称查找授权记录（忽略大小写）：[存储名, expires]，找不到返回 null */
+    /** 按名称查找授权记录（忽略大小写精确查询，不再全表扫描）：[存储名, expires] */
     public String[] getAccessRecord(String playerName) {
-        for (String[] row : loadAllAccess()) {
-            if (row[0].equalsIgnoreCase(playerName)) {
-                return row;
-            }
+        if (conn == null) {
+            return null;
         }
-        return null;
+        try (PreparedStatement ps = conn.prepareStatement(
+                mysql ? "SELECT player, expires FROM ab_access WHERE player = ? COLLATE utf8mb4_general_ci"
+                      : "SELECT player, expires FROM ab_access WHERE player = ? COLLATE NOCASE")) {
+            ps.setString(1, playerName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return new String[]{rs.getString(1), String.valueOf(rs.getLong(2))};
+                }
+                return null;
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("授权查询失败: " + e.getMessage());
+            return null;
+        }
     }
 
     /** 授权：expiresAt=0 表示永久，否则为过期毫秒时间戳 */

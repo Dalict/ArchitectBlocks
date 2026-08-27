@@ -37,8 +37,6 @@ public class ArchitectBlocks extends JavaPlugin {
     public static final int PAGE_SIZE = 36;
 
     /** 当前默认配置的版本号，用于配置文件升级 */
-    private static final int CONFIG_VERSION = 3;
-
     private ItemRegistry itemRegistry;
     private LangManager lang;
     private ChatInputManager chatInput;
@@ -51,9 +49,9 @@ public class ArchitectBlocks extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
         upgradeConfig();
-        migratePlayersYml();
         db = new Database(this);
         db.init();
+        migratePlayersYml();
         lang = new LangManager(this);
         itemRegistry = new ItemRegistry(this);
         itemRegistry.reload();
@@ -111,10 +109,6 @@ public class ArchitectBlocks extends JavaPlugin {
                 return true;
             }
             // reload 时补生成缺失的配置文件（删除配置后无需重启即可恢复）
-            if (!new File(getDataFolder(), "config.yml").isFile()) {
-                saveDefaultConfig();
-                sender.sendMessage(color("&aconfig.yml 不存在，已重新生成默认配置。"));
-            }
             if (!new File(getDataFolder(), "config.yml").isFile()) {
                 saveDefaultConfig();
                 sender.sendMessage(color("&aconfig.yml 不存在，已重新生成默认配置。"));
@@ -606,11 +600,6 @@ public class ArchitectBlocks extends JavaPlugin {
         inv.setItem(4, icon(material("flight-menu-button", Material.FEATHER),
                 color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
                 color(getMessage("flight-lore"))));
-        if (isAdmin) {
-            inv.setItem(7, icon(material("give-quick-button", Material.KNOWLEDGE_BOOK),
-                    color(getGuiConfigString("names.give-quick", "&8[ &e发放快捷物品 &8]")),
-                    color(getMessage("give-quick-lore"))));
-        }
         inv.setItem(8, icon(material("search-button", Material.COMPASS),
                 color(getGuiConfigString("names.search", "&8[ &b搜索 &8]")),
                 searchLore(player)));
@@ -741,9 +730,22 @@ public class ArchitectBlocks extends JavaPlugin {
                 color(nightVision ? getMessage("nv-on-state") : getMessage("nv-off-state")),
                 color(getMessage("click-toggle"))));
 
+        // 发放快捷物品按钮：快捷物品禁用时自动隐藏
+        java.util.List<Integer> reservedBottom = new java.util.ArrayList<>();
+        reservedBottom.add(22);
+        if (getConfig().getBoolean("quick-item.enabled", true)) {
+            inv.setItem(19, icon(material("give-quick-button", Material.KNOWLEDGE_BOOK),
+                    color(getGuiConfigString("names.give-quick", "&8[ &e发放快捷物品 &8]")),
+                    color(getMessage("give-quick-lore"))));
+            reservedBottom.add(19);
+        }
         inv.setItem(22, icon(material("back-button", Material.COMPASS),
                 color(getGuiConfigString("names.back-main", "&8[ &e返回主界面 &8]"))));
-        fillPanes(inv, 18, 26, 22);
+        int[] reserved = new int[reservedBottom.size()];
+        for (int i = 0; i < reserved.length; i++) {
+            reserved[i] = reservedBottom.get(i);
+        }
+        fillPanes(inv, 18, 26, reserved);
         player.openInventory(inv);
     }
 
@@ -783,6 +785,10 @@ public class ArchitectBlocks extends JavaPlugin {
                 reopenFlightMenu(player);
                 return;
             }
+            case 19:
+                giveQuickItem(player);
+                reopenFlightMenu(player);
+                return;
             case 22:
                 openMainMenu(player, db.getPage(player.getUniqueId(), "main"), false);
                 return;
@@ -863,7 +869,7 @@ public class ArchitectBlocks extends JavaPlugin {
         }
         String name = records.get(index)[0];
         db.removeAccess(name);
-        player.sendMessage(color("&a已移除 &f" + name + " &a的授权。"));
+        player.sendMessage(color(getMessage("access-revoked").replace("%name%", name)));
         openAccessList(player, page);
     }
 
@@ -929,11 +935,17 @@ public class ArchitectBlocks extends JavaPlugin {
         }
     }
 
-    /** 自定义物品图标：克隆原物品（保留 NBT 与名称），附加 lore */
-    private ItemStack entryIcon(ItemEntry entry, List<String> lore) {
+    /** 自定义物品图标：克隆原物品（保留 NBT、名称与原版 lore），追加插件提示 */
+    private ItemStack entryIcon(ItemEntry entry, List<String> extraLore) {
         ItemStack item = entry.custom.clone();
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
+            List<String> lore = meta.hasLore()
+                    ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
+            if (!lore.isEmpty()) {
+                lore.add(""); // 原 lore 与插件提示之间空一行
+            }
+            lore.addAll(extraLore);
             meta.setLore(lore);
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
             item.setItemMeta(meta);
@@ -1094,33 +1106,69 @@ public class ArchitectBlocks extends JavaPlugin {
     }
 
     /**
-     * 配置文件升级：config-version 低于当前版本时，把内置默认配置中缺失的键
-     * 补充到用户配置（用户已有设置全部保留），然后写回并重载。
+     * 配置升级（键结构比对方案）：
+     * 启动/reload 时拿用户配置与打包的默认配置比对键集合，
+     * 不一致则：以默认结构为骨架、用户已设值覆盖 → 重建配置文件。
+     * 无需维护版本号，用户自定义的值全部保留。
      */
     private void upgradeConfig() {
-        // 必须从磁盘文件读版本：getConfig() 会并入插件内置默认值，
-        // 直接 getInt 会把默认版本号当成用户配置导致升级永远不触发
         File configFile = new File(getDataFolder(), "config.yml");
-        int version = 1;
-        boolean keyMissing = false;
-        if (configFile.isFile()) {
-            org.bukkit.configuration.file.YamlConfiguration onDisk =
-                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(configFile);
-            version = onDisk.getInt("config-version", 1);
-            // 防呆：版本号可能已达标但关键键缺失（历史写入异常等），同样强制合并
-            keyMissing = onDisk.getString("messages.title-main") == null;
-        }
-        if (version >= CONFIG_VERSION && !keyMissing) {
+        if (!configFile.isFile()) {
             return;
         }
-        if (keyMissing) {
-            getLogger().warning("检测到配置缺少关键键，强制执行合并升级");
+        try {
+            org.bukkit.configuration.file.YamlConfiguration user =
+                    org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(configFile);
+            org.bukkit.configuration.file.YamlConfiguration defaults =
+                    new org.bukkit.configuration.file.YamlConfiguration();
+            try (java.io.InputStream in = getResource("config.yml");
+                 java.io.InputStreamReader reader = new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
+                defaults.load(reader);
+            }
+            java.util.Set<String> defaultKeys = flattenKeys(defaults);
+            java.util.Set<String> userKeys = flattenKeys(user);
+            if (defaultKeys.equals(userKeys)) {
+                return; // 结构一致，无需升级
+            }
+            // 重建：默认结构骨架 + 用户值覆盖
+            org.bukkit.configuration.file.YamlConfiguration merged =
+                    new org.bukkit.configuration.file.YamlConfiguration();
+            for (String key : defaultKeys) {
+                if (user.contains(key)) {
+                    merged.set(key, user.get(key));
+                } else {
+                    merged.set(key, defaults.get(key));
+                }
+            }
+            merged.save(configFile);
+            reloadConfig();
+            java.util.Set<String> added = new java.util.HashSet<>(defaultKeys);
+            added.removeAll(userKeys);
+            java.util.Set<String> removed = new java.util.HashSet<>(userKeys);
+            removed.removeAll(defaultKeys);
+            getLogger().info("配置结构已自动更新：新增 " + added.size() + " 键，移除 "
+                    + removed.size() + " 键，用户设置全部保留");
+        } catch (Exception e) {
+            getLogger().warning("配置结构比对失败，继续使用现有配置: " + e.getMessage());
         }
-        getConfig().options().copyDefaults(true);
-        getConfig().set("config-version", CONFIG_VERSION);
-        saveConfig();
-        reloadConfig();
-        getLogger().info("配置文件已从 v" + version + " 升级到 v" + CONFIG_VERSION
-                + "，缺失的默认项已补充，原有设置保留");
+    }
+
+    /** 递归获取配置的全部叶子键 */
+    private java.util.Set<String> flattenKeys(org.bukkit.configuration.file.YamlConfiguration cfg) {
+        java.util.Set<String> keys = new java.util.TreeSet<>();
+        collectKeys(cfg, "", keys);
+        return keys;
+    }
+
+    private void collectKeys(org.bukkit.configuration.ConfigurationSection section,
+                             String prefix, java.util.Set<String> keys) {
+        for (String key : section.getKeys(false)) {
+            String full = prefix.isEmpty() ? key : prefix + "." + key;
+            if (section.isConfigurationSection(key)) {
+                collectKeys(section.getConfigurationSection(key), full, keys);
+            } else {
+                keys.add(full);
+            }
+        }
     }
 }

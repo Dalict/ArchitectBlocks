@@ -203,8 +203,13 @@ public class QuickItemListener implements Listener {
         if (hadStale) {
             player.sendMessage(plugin.getMessage("quick-removed-outdated"));
         }
-        if (!hasCurrent(player) && player.getInventory().firstEmpty() != -1) {
-            player.getInventory().addItem(createItem(player));
+        if (!hasCurrent(player)) {
+            if (player.getInventory().firstEmpty() != -1) {
+                player.getInventory().addItem(createItem(player));
+            } else {
+                // 进服自动发放时背包满 → 提示但不发放
+                player.sendMessage(plugin.getMessage("quick-inventory-full"));
+            }
         }
     }
 
