@@ -39,7 +39,6 @@ ArchitectBlocks 就是为这个场景设计的：**让信任的建筑师在不�
 
 ## 插件截图
 
-让你们看看写这个的笨蛋xwx，ouo
 ![xwx](screenshot/stupid-author-Minecraft-character.png)
 
 **主菜单**（全物品列表，点击获取）：
