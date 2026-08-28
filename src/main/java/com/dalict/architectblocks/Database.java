@@ -228,7 +228,7 @@ public class Database {
     }
 
     /** 读取恢复目标视图：[view, keyword]；无记录返回 null */
-    public String[] getView(UUID uuid) {
+    public synchronized String[] getView(UUID uuid) {
         if (conn == null) return null;
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT view, keyword FROM ab_view WHERE uuid = ?")) {
@@ -266,7 +266,7 @@ public class Database {
     }
 
     /** 读取某视图的记忆页码（同步读，主键单行查询） */
-    public int getPage(UUID uuid, String view) {
+    public synchronized int getPage(UUID uuid, String view) {
         if (conn == null) return 0;
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT page FROM ab_pages WHERE uuid = ? AND view = ?")) {
@@ -298,7 +298,7 @@ public class Database {
     }
 
     /** 读取全部自定义物品原始记录：[id, base64, name] */
-    public List<String[]> loadCustomRaw() {
+    public synchronized List<String[]> loadCustomRaw() {
         List<String[]> out = new ArrayList<>();
         if (conn == null) {
             return out;
@@ -315,7 +315,7 @@ public class Database {
     }
 
     /** 新增自定义物品 */
-    public void addCustom(String base64, String name) {
+    public synchronized void addCustom(String base64, String name) {
         if (conn == null) {
             plugin.getLogger().warning("无数据库连接，无法保存自定义物品");
             return;
@@ -335,7 +335,7 @@ public class Database {
     }
 
     /** 删除自定义物品 */
-    public void removeCustom(int id) {
+    public synchronized void removeCustom(int id) {
         if (conn == null) {
             return;
         }
@@ -362,7 +362,7 @@ public class Database {
     }
 
     /** 按名称查找授权记录（忽略大小写精确查询，不再全表扫描）：[存储名, expires] */
-    public String[] getAccessRecord(String playerName) {
+    public synchronized String[] getAccessRecord(String playerName) {
         if (conn == null) {
             return null;
         }
@@ -413,7 +413,7 @@ public class Database {
     }
 
     /** 全部授权记录：[name, expires] */
-    public List<String[]> loadAllAccess() {
+    public synchronized List<String[]> loadAllAccess() {
         List<String[]> out = new ArrayList<>();
         if (conn == null) {
             return out;
@@ -430,7 +430,7 @@ public class Database {
     }
 
     /** 从数据库读取语言缓存表 */
-    public Map<String, String> loadLang(String code) {
+    public synchronized Map<String, String> loadLang(String code) {
         Map<String, String> out = new HashMap<>();
         if (conn == null) {
             return out;

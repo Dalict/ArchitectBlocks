@@ -24,6 +24,38 @@
 
 ---
 
+## 效果图
+
+**主菜单**（全物品列表，点击获取）：
+
+![主菜单](screenshot/Homepage-screenshot.png)
+
+**聊天栏搜索**（输入关键词即搜，支持中英多语言）：
+
+![搜索](screenshot/Search-screenshot.png)
+
+**管理员设置**（开关、名单、上传、授权一站式管理）：
+
+![管理设置](screenshot/Management-Settings-Screenshot.png)
+
+**飞行设置**（开关、三档速度、永久夜视、发放快捷物品）：
+
+![飞行设置](screenshot/fly-interface-screenshot.png)
+
+**快捷物品**（知识之书，点击打开菜单，附魔光效）：
+
+![快捷物品](screenshot/quick-item-screenshot.png)
+
+**页码跳转**（纸张堆叠数 = 页码，点击直达）：
+
+![页码跳转](screenshot/Select-page-number-screenshot.png)
+
+**帮助命令**：
+
+![帮助](screenshot/Help-screenshot.png)
+
+---
+
 ## 插件定位
 
 服务器里常有这样的需求：有玩家（或建筑队）申请做大型建筑，靠生存肝材料不现实，但你又不放心直接给创造——创造权限一旦下放，误伤地形、顺手拿走不该拿的东西、权限失控，都是隐患。

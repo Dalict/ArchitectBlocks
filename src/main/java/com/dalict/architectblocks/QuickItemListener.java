@@ -63,11 +63,10 @@ public class QuickItemListener implements Listener {
                 "quick-item.material", Material.KNOWLEDGE_BOOK));
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            String name = plugin.getConfig().getString("quick-item.name",
-                    "&8[ &a建筑材料菜单 &8]");
+            String name = plugin.getQuickItemName();
             meta.setDisplayName(plugin.applyPapi(player, ArchitectBlocks.color(name)));
             List<String> lore = new ArrayList<>();
-            for (String line : plugin.getConfig().getStringList("quick-item.lore")) {
+            for (String line : plugin.getQuickItemLore()) {
                 lore.add(plugin.applyPapi(player, ArchitectBlocks.color(line)));
             }
             if (!lore.isEmpty()) {

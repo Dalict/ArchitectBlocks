@@ -39,6 +39,7 @@ public class ArchitectBlocks extends JavaPlugin {
     /** 当前默认配置的版本号，用于配置文件升级 */
     private ItemRegistry itemRegistry;
     private LangManager lang;
+    private LangMessages langMsg;
     private ChatInputManager chatInput;
     private Database db;
     private QuickItemListener quickItem;
@@ -49,6 +50,8 @@ public class ArchitectBlocks extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
         upgradeConfig();
+        langMsg = new LangMessages(this);
+        langMsg.load();
         db = new Database(this);
         db.init();
         migratePlayersYml();
@@ -71,8 +74,13 @@ public class ArchitectBlocks extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length > 0 && args[0].equalsIgnoreCase("help")) {
-            for (String line : getConfig().getStringList("messages.help")) {
-                sender.sendMessage(sendable(sender, line));
+            List<String> help = langMsg != null ? langMsg.msgList("help")
+                    : new ArrayList<>();
+            if (help.isEmpty()) {
+                help = getConfig().getStringList("messages.help");
+            }
+            for (String line : help) {
+                sender.sendMessage(sendable(sender, ChatColor.stripColor(line).isEmpty() ? line : line));
             }
             return true;
         }
@@ -115,6 +123,7 @@ public class ArchitectBlocks extends JavaPlugin {
             }
             reloadConfig();
             upgradeConfig();
+            langMsg.load();
             lang.clearCache();
             itemRegistry.reload();
             sendColored(sender, getMessage("reloaded"));
@@ -463,11 +472,12 @@ public class ArchitectBlocks extends JavaPlugin {
                 color(getMessage("click-toggle"))));
         // 名单管理：单一入口，图标与说明跟随当前名单模式变色
         boolean white = itemRegistry.isWhiteMode();
+        List<String> listLore = langMsg != null ? langMsg.msgList("list-manage-lore") : new ArrayList<>();
+        listLore.add(0, color(getMessage("mode-current") + modeName(white)));
         inv.setItem(12, icon(white ? material("whitelist-button", Material.WHITE_WOOL)
                         : material("blacklist-button", Material.BLACK_WOOL),
                 color(getGuiConfigString("names.list-manage", "&8[ &d名单管理 &8]")),
-                color(getMessage("mode-current") + modeName(white)),
-                color(getMessage("list-manage-lore"))));
+                listLore.toArray(new String[0])));
         inv.setItem(14, icon(material("upload-button", Material.CHEST),
                 color(getGuiConfigString("names.upload-list", "&8[ &b上传物品管理 &8]")),
                 color(getMessage("upload-list-lore"))));
@@ -970,6 +980,10 @@ public class ArchitectBlocks extends JavaPlugin {
         return itemRegistry;
     }
 
+    public LangMessages getLangMsg() {
+        return langMsg;
+    }
+
     public LangManager getLang() {
         return lang;
     }
@@ -988,7 +1002,20 @@ public class ArchitectBlocks extends JavaPlugin {
     }
 
     String getMessage(String key) {
-        return color(getConfig().getString("messages." + key, "&c缺少消息配置: " + key));
+        return langMsg != null ? langMsg.msg(key)
+                : color(getConfig().getString("messages." + key, "&c缺少消息配置: " + key));
+    }
+
+    /** 快捷物品名称（语言文件） */
+    public String getQuickItemName() {
+        return langMsg != null ? langMsg.quickItemName()
+                : getConfig().getString("quick-item.name", "&8[ &a建筑物品菜单 &8]");
+    }
+
+    /** 快捷物品描述（语言文件） */
+    public List<String> getQuickItemLore() {
+        return langMsg != null ? langMsg.quickItemLore()
+                : getConfig().getStringList("quick-item.lore");
     }
 
     /** 占位符应用：PlaceholderAPI 存在时替换变量，否则原样返回 */
@@ -1092,6 +1119,9 @@ public class ArchitectBlocks extends JavaPlugin {
     }
 
     String getGuiConfigString(String key, String def) {
+        if (key.startsWith("names.") && langMsg != null) {
+            return langMsg.guiName(key.substring(6), def);
+        }
         return getConfig().getString("gui." + key, def);
     }
 
@@ -1146,29 +1176,139 @@ public class ArchitectBlocks extends JavaPlugin {
             java.util.Set<String> defaultKeys = flattenKeys(defaults);
             java.util.Set<String> userKeys = flattenKeys(user);
             if (defaultKeys.equals(userKeys)) {
-                return; // 结构一致，无需升级
+                return;
             }
-            // 重建：默认结构骨架 + 用户值覆盖
-            org.bukkit.configuration.file.YamlConfiguration merged =
-                    new org.bukkit.configuration.file.YamlConfiguration();
-            for (String key : defaultKeys) {
-                if (user.contains(key)) {
-                    merged.set(key, user.get(key));
-                } else {
-                    merged.set(key, defaults.get(key));
+            // 1) 提取用户自定义值（与默认值不同的）
+            java.util.Map<String, Object> overrides = new java.util.LinkedHashMap<>();
+            for (String key : userKeys) {
+                if (defaultKeys.contains(key)) {
+                    Object userVal = user.get(key);
+                    Object defVal = defaults.get(key);
+                    if (!java.util.Objects.equals(userVal, defVal)) {
+                        overrides.put(key, userVal);
+                    }
                 }
             }
-            merged.save(configFile);
+            // 2) 删除旧配置
+            java.nio.file.Files.deleteIfExists(configFile.toPath());
+            // 3) 原汁原味释放新配置（注释保留）
+            saveResource("config.yml", false);
+            // 4) 把用户值填回去（文本级替换，注释不丢）
+            applyOverrides(configFile, overrides);
             reloadConfig();
             java.util.Set<String> added = new java.util.HashSet<>(defaultKeys);
             added.removeAll(userKeys);
             java.util.Set<String> removed = new java.util.HashSet<>(userKeys);
             removed.removeAll(defaultKeys);
             getLogger().info("配置结构已自动更新：新增 " + added.size() + " 键，移除 "
-                    + removed.size() + " 键，用户设置全部保留");
+                    + removed.size() + " 键，用户设置全部保留（含注释）");
         } catch (Exception e) {
             getLogger().warning("配置结构比对失败，继续使用现有配置: " + e.getMessage());
         }
+    }
+
+    private void applyOverrides(File file, java.util.Map<String, Object> overrides) {
+        if (overrides.isEmpty()) {
+            return;
+        }
+        try {
+            java.util.List<String> lines = new ArrayList<>(
+                    java.nio.file.Files.readAllLines(file.toPath(), java.nio.charset.StandardCharsets.UTF_8));
+            java.util.List<String> output = new ArrayList<>();
+            java.util.Deque<String> pathStack = new java.util.ArrayDeque<>();
+            java.util.Deque<Integer> indentStack = new java.util.ArrayDeque<>();
+            int i = 0;
+            while (i < lines.size()) {
+                String line = lines.get(i);
+                String trimmed = line.trim();
+                int indent = line.length() - line.stripLeading().length();
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                    output.add(line);
+                    i++;
+                    continue;
+                }
+                while (!indentStack.isEmpty() && indentStack.peek() >= indent) {
+                    indentStack.pop();
+                    pathStack.pop();
+                }
+                int colonIdx = trimmed.indexOf(':');
+                if (colonIdx < 0) {
+                    output.add(line);
+                    i++;
+                    continue;
+                }
+                String key = trimmed.substring(0, colonIdx).trim();
+                String valuePart = colonIdx + 1 < trimmed.length()
+                        ? trimmed.substring(colonIdx + 1).trim() : "";
+                String fullPath = buildFullPath(pathStack, key);
+                if (valuePart.isEmpty()) {
+                    int next = i + 1;
+                    while (next < lines.size()
+                            && (lines.get(next).trim().isEmpty() || lines.get(next).trim().startsWith("#"))) {
+                        next++;
+                    }
+                    if (next < lines.size() && lines.get(next).trim().startsWith("- ")) {
+                        if (overrides.containsKey(fullPath) && overrides.get(fullPath) instanceof List) {
+                            output.add(line);
+                            List<?> list = (List<?>) overrides.get(fullPath);
+                            String itemIndent = " ".repeat(indent + 2);
+                            for (Object item : list) {
+                                output.add(itemIndent + "- " + yamlValue(item));
+                            }
+                            i = next;
+                            while (i < lines.size() && lines.get(i).trim().startsWith("- ")) {
+                                i++;
+                            }
+                            continue;
+                        }
+                        output.add(line);
+                        i++;
+                        while (i < lines.size() && lines.get(i).trim().startsWith("- ")) {
+                            output.add(lines.get(i));
+                            i++;
+                        }
+                        continue;
+                    }
+                    pathStack.push(key);
+                    indentStack.push(indent);
+                    output.add(line);
+                    i++;
+                } else {
+                    if (overrides.containsKey(fullPath)) {
+                        output.add(line.substring(0, indent) + key + ": " + yamlValue(overrides.get(fullPath)));
+                    } else {
+                        output.add(line);
+                    }
+                    i++;
+                }
+            }
+            java.nio.file.Files.write(file.toPath(), output, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            getLogger().warning("用户配置回填失败: " + e.getMessage());
+        }
+    }
+
+    private String buildFullPath(java.util.Deque<String> stack, String key) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : stack) {
+            sb.append(part).append(".");
+        }
+        sb.append(key);
+        return sb.toString();
+    }
+
+    private String yamlValue(Object val) {
+        if (val == null) {
+            return "''";
+        }
+        if (val instanceof Boolean || val instanceof Number) {
+            return String.valueOf(val);
+        }
+        String s = String.valueOf(val);
+        if (s.isEmpty()) {
+            return "''";
+        }
+        return "'" + s.replace("'", "''") + "'";
     }
 
     /** 递归获取配置的全部叶子键 */
