@@ -25,3 +25,6 @@ ArchitectBlocks-*.jar
 # 临时文件
 resp.json
 body.json
+
+# 外站专用文档（不入仓库）
+README_EXTERNAL.md
