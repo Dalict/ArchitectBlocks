@@ -139,6 +139,15 @@ public class MenuListener implements Listener {
             case ACCESS_LIST:
                 plugin.handleAccessListClick(player, holder.getPage(), slot);
                 break;
+            case FILL:
+                plugin.handleFillClick(player, slot);
+                break;
+            case FILL_SELECT:
+                plugin.handleFillSelectClick(player, holder.getPage(), slot);
+                break;
+            case FILL_REPLACE:
+                plugin.handleFillReplaceClick(player, holder.getPage(), slot);
+                break;
         }
     }
 
@@ -162,8 +171,8 @@ public class MenuListener implements Listener {
             plugin.openFlightMenu(player);
             return;
         }
-        if (slot == 7 && player.hasPermission(ArchitectBlocks.PERM_ADMIN)) {
-            plugin.giveQuickItem(player);
+        if (slot == 7 && plugin.canFill(player)) {
+            plugin.openFillMenu(player);
             return;
         }
         if (slot == 45) {

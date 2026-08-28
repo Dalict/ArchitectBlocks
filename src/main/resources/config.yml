@@ -9,6 +9,7 @@ language: zh_CN
 # 访问控制
 # 菜单与所有功能：architectblocks.admin 或 use 权限 或 全局允许 或 授权名单
 # 快捷物品发放（严格）：use 权限 或 全局允许 或 授权名单（admin 不隐式放行）
+# 填充工具（独立）：architectblocks.fill 权限 或 授权名单中 allow_fill=1
 access:
   # 全局允许所有人使用（开启后无视名单与权限）
   allow-everyone: false
@@ -33,6 +34,8 @@ settings:
   sort: type
   # 聊天搜索输入的超时秒数
   chat-timeout-seconds: 30
+  # 填充工具最大体积（X*Y*Z），超出则拒绝执行
+  fill-max-volume: 32768
 
 # 搜索：可搜索语言（Minecraft 语言代码），自动下载官方语言文件
 # 英文ID与英文名(en_us)始终可搜索
@@ -81,3 +84,5 @@ gui:
     fly-speed-button: SUGAR
     night-vision-toggle: ENDER_EYE
     give-quick-button: KNOWLEDGE_BOOK
+    fill-button: WOODEN_SHOVEL
+    fill-execute-button: WOODEN_AXE
