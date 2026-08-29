@@ -2,7 +2,6 @@ package com.dalict.architectblocks;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -32,7 +31,6 @@ public class ArchitectBlocks extends JavaPlugin {
 
     public static final String PERM_USE = "architectblocks.use";
     public static final String PERM_ADMIN = "architectblocks.admin";
-    public static final String PERM_FILL = "architectblocks.fill";
 
     /** 物品区槽位从 9 开始，共 36 格（0-8 与 45-53 为边框区） */
     public static final int ITEM_SLOT_START = 9;
@@ -45,7 +43,6 @@ public class ArchitectBlocks extends JavaPlugin {
     private ChatInputManager chatInput;
     private Database db;
     private QuickItemListener quickItem;
-    private FillSession fillSession;
     private Object expansionRef;
     private final Map<UUID, Long> giveCooldown = new HashMap<>();
 
@@ -65,7 +62,6 @@ public class ArchitectBlocks extends JavaPlugin {
         Bukkit.getScheduler().runTaskAsynchronously(this, () -> lang.downloadConfiguredLanguages());
         chatInput = new ChatInputManager(this);
         quickItem = new QuickItemListener(this);
-        fillSession = new FillSession(this);
         Bukkit.getPluginManager().registerEvents(new MenuListener(this), this);
         Bukkit.getPluginManager().registerEvents(chatInput, this);
         Bukkit.getPluginManager().registerEvents(quickItem, this);
@@ -195,21 +191,6 @@ public class ArchitectBlocks extends JavaPlugin {
         return player.hasPermission(PERM_USE);
     }
 
-    /**
-     * 填充工具使用资格：architectblocks.fill 权限 或 数据库授权含填充标记。
-     * use/admin 权限不隐式放行——填充是独立授权的能力。
-     */
-    public boolean canFill(Player player) {
-        if (player.hasPermission(PERM_FILL)) {
-            return true;
-        }
-        if (getConfig().getBoolean("access.use-player-list", true)
-                && db.hasFillGrant(player.getName())) {
-            return true;
-        }
-        return false;
-    }
-
     /** 授权剩余文本：永久 / N天 / 未授权 */
     public String getAccessExpireText(Player player) {
         String[] rec = db.getAccessRecord(player.getName());
@@ -238,7 +219,7 @@ public class ArchitectBlocks extends JavaPlugin {
                     org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(oldFile);
             List<String> names = cfg.getStringList("players");
             for (String name : names) {
-                db.grantAccess(name.trim(), 0, false);
+                db.grantAccess(name.trim(), 0);
             }
             if (!names.isEmpty()) {
                 getLogger().info("已将 players.yml 的 " + names.size() + " 名授权玩家迁移到数据库");
@@ -260,12 +241,9 @@ public class ArchitectBlocks extends JavaPlugin {
             return true;
         }
         String target = args[1].trim();
-        boolean allowFill = args.length >= 4 && (args[3].equalsIgnoreCase("fill")
-                || args[3].equalsIgnoreCase("true") || args[3].equalsIgnoreCase("是"));
         if (add) {
             long expires = 0;
-            if (args.length >= 3 && !args[2].equalsIgnoreCase("fill")
-                    && !args[2].equalsIgnoreCase("true") && !args[2].equalsIgnoreCase("是")) {
+            if (args.length >= 3) {
                 Long millis = parseDuration(args[2]);
                 if (millis == null) {
                     sender.sendMessage(getMessage("duration-invalid").replace("%input%", args[2]));
@@ -273,7 +251,7 @@ public class ArchitectBlocks extends JavaPlugin {
                 }
                 expires = millis == 0 ? 0 : System.currentTimeMillis() + millis;
             }
-            db.grantAccess(target, expires, allowFill);
+            db.grantAccess(target, expires);
             String expire = expires == 0 ? getMessage("expire-permanent") : expireText(expires);
             sender.sendMessage(color(getMessage("access-granted")
                     .replace("%name%", target).replace("%expire%", expire)));
@@ -618,396 +596,6 @@ public class ArchitectBlocks extends JavaPlugin {
         return items;
     }
 
-    // ==================== 填充工具 ====================
-
-    /** 填充工具主界面（记忆） */
-    public void openFillMenu(Player player) {
-        FillSession.PlayerSession fs = fillSession.get(player);
-        MenuHolder holder = new MenuHolder(MenuHolder.Type.FILL, 0, null, false);
-        Inventory inv = Bukkit.createInventory(holder, 54, color(getMessage("title-fill")));
-        holder.setInventory(inv);
-
-        // 22 选填充方块
-        Material fb = fs.fillBlock;
-        String fbName = fb == Material.AIR ? getMessage("fill-block-air")
-                : fb.name().toLowerCase();
-        inv.setItem(22, icon(fb == Material.AIR ? Material.STRUCTURE_VOID : fb,
-                color(getMessage("fill-select-block-name")),
-                color(getMessage("fill-current-block").replace("%block%", fbName)),
-                color(getMessage("fill-click-select"))));
-
-        // 29-33 模式
-        FillSession.Mode[] modes = {FillSession.Mode.HOLLOW, FillSession.Mode.OUTLINE,
-                FillSession.Mode.REPLACE, FillSession.Mode.KEEP, FillSession.Mode.REPLACE_ALL};
-        int[] modeSlots = {29, 30, 31, 32, 33};
-        String[] modeNameKeys = {"fill-mode-hollow", "fill-mode-outline", "fill-mode-replace",
-                "fill-mode-keep", "fill-mode-replace-all"};
-        String[] modeDescKeys = {"fill-mode-hollow-desc", "fill-mode-outline-desc",
-                "fill-mode-replace-desc", "fill-mode-keep-desc", "fill-mode-replace-all-desc"};
-        for (int i = 0; i < modes.length; i++) {
-            boolean current = fs.mode == modes[i];
-            List<String> lore = new ArrayList<>();
-            lore.add(color(getMessage(modeDescKeys[i])));
-            lore.add(color(current ? getMessage("fill-mode-current") : getMessage("fill-mode-click")));
-            inv.setItem(modeSlots[i], icon(
-                    material("fill-mode-" + modes[i].name().toLowerCase(), Material.LEVER),
-                    color(getMessage(modeNameKeys[i])),
-                    lore.toArray(new String[0])));
-        }
-
-        // 47 A点 | 51 B点
-        inv.setItem(47, icon(Material.BLUE_WOOL, color(getMessage("fill-point-a-name")),
-                color(getMessage("fill-point-a-desc")),
-                color(getMessage("fill-point-set").replace("%pos%",
-                        fs.pointA == null ? getMessage("fill-not-set")
-                                : formatPos(fs.pointA)))));
-        inv.setItem(51, icon(Material.RED_WOOL, color(getMessage("fill-point-b-name")),
-                color(getMessage("fill-point-b-desc")),
-                color(getMessage("fill-point-set").replace("%pos%",
-                        fs.pointB == null ? getMessage("fill-not-set")
-                                : formatPos(fs.pointB)))));
-
-        // 49 立即填充
-        inv.setItem(49, icon(material("fill-execute-button", Material.WOODEN_AXE),
-                color(getMessage("fill-execute-name")),
-                color(getMessage("fill-execute-desc"))));
-
-        // 40 清空方块
-        inv.setItem(40, icon(Material.BUCKET, color(getMessage("fill-clear-blocks-name")),
-                color(getMessage("fill-clear-blocks-desc"))));
-
-        // 4 清空所有
-        inv.setItem(4, icon(Material.TNT, color(getMessage("fill-reset-all-name")),
-                color(getMessage("fill-reset-all-desc"))));
-
-        // 0 关闭 | 8 返回主页
-        inv.setItem(0, icon(material("close-button", Material.BARRIER),
-                color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
-        inv.setItem(8, icon(material("back-button", Material.COMPASS),
-                color(getGuiConfigString("names.back-main", "&8[ &e返回主界面 &8]"))));
-
-        fillPanes(inv, 0, 8, 0, 4, 8);
-        fillPanes(inv, 45, 53, 47, 49, 51);
-        player.openInventory(inv);
-    }
-
-    private String formatPos(Location loc) {
-        return loc.getWorld().getName() + " " + loc.getBlockX() + "," + loc.getBlockY()
-                + "," + loc.getBlockZ();
-    }
-
-    /** 填充方块选择页：仅显示可放置方块 + 上传的可放置物品（页码记忆） */
-    public void openFillSelect(Player player, int page) {
-        List<ItemEntry> items = new ArrayList<>();
-        // 空气（默认）永远第一个
-        items.add(ItemEntry.vanilla(Material.AIR));
-        for (Material mat : Material.values()) {
-            if (mat.isItem() && !mat.isAir() && mat.isBlock() && mat.isOccluding()
-                    && !itemRegistry.isAdminItem(mat) && itemRegistry.isVisible(mat)) {
-                items.add(ItemEntry.vanilla(mat));
-            }
-        }
-        // 上传的可放置自定义物品
-        for (ItemEntry ce : itemRegistry.getCustoms()) {
-            if (ce.material.isBlock()) {
-                items.add(ce);
-            }
-        }
-        int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
-        if (page < 0) page = 0;
-        if (page >= pageCount) page = pageCount - 1;
-
-        String title = color(getMessage("title-fill-select")
-                .replace("%page%", String.valueOf(page + 1))
-                .replace("%max%", String.valueOf(pageCount)));
-        MenuHolder holder = new MenuHolder(MenuHolder.Type.FILL_SELECT, page, null, false, "fill_select", false);
-        Inventory inv = Bukkit.createInventory(holder, 54, title);
-        holder.setInventory(inv);
-        db.setPage(player.getUniqueId(), "fill_select", page);
-
-        FillSession.PlayerSession fs = fillSession.get(player);
-        for (int i = 0; i < PAGE_SIZE; i++) {
-            int index = page * PAGE_SIZE + i;
-            if (index >= items.size()) break;
-            ItemEntry entry = items.get(index);
-            boolean selected = entry.isCustom() ? false
-                    : entry.material == fs.fillBlock;
-            List<String> lore = new ArrayList<>();
-            if (entry.material == Material.AIR) {
-                lore.add(color(getMessage("fill-block-air-desc")));
-            }
-            if (selected) {
-                lore.add(color(getMessage("fill-block-selected")));
-            }
-            lore.add(color(getMessage("fill-block-click-select")));
-            if (entry.isCustom()) {
-                inv.setItem(ITEM_SLOT_START + i, entryIcon(entry, lore));
-            } else {
-                Material mat = entry.material;
-                inv.setItem(ITEM_SLOT_START + i, icon(
-                        mat == Material.AIR ? Material.STRUCTURE_VOID : mat,
-                        null, lore.toArray(new String[0])));
-            }
-        }
-
-        inv.setItem(0, icon(material("close-button", Material.BARRIER),
-                color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
-        inv.setItem(8, icon(material("back-button", Material.COMPASS),
-                color(getGuiConfigString("names.back", "&8[ &e返回填充工具 &8]"))));
-        if (pageCount > 1) {
-            inv.setItem(48, icon(material("prev-button", Material.ARROW),
-                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
-            inv.setItem(50, icon(material("next-button", Material.ARROW),
-                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
-        }
-        fillPanes(inv, 0, 8, 0, 8);
-        fillPanes(inv, 45, 53, 48, 50);
-        player.openInventory(inv);
-    }
-
-    /** 替换模式的目标方块选择页（与选方块页一致，但选择的是替换目标） */
-    public void openFillReplace(Player player, int page) {
-        List<ItemEntry> items = new ArrayList<>();
-        for (Material mat : Material.values()) {
-            if (mat.isItem() && !mat.isAir() && mat.isBlock() && mat.isOccluding()
-                    && !itemRegistry.isAdminItem(mat) && itemRegistry.isVisible(mat)) {
-                items.add(ItemEntry.vanilla(mat));
-            }
-        }
-        int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
-        if (page < 0) page = 0;
-        if (page >= pageCount) page = pageCount - 1;
-
-        String title = color(getMessage("title-fill-replace")
-                .replace("%page%", String.valueOf(page + 1))
-                .replace("%max%", String.valueOf(pageCount)));
-        MenuHolder holder = new MenuHolder(MenuHolder.Type.FILL_REPLACE, page, null, false);
-        Inventory inv = Bukkit.createInventory(holder, 54, title);
-        holder.setInventory(inv);
-        db.setPage(player.getUniqueId(), "fill_replace", page);
-
-        FillSession.PlayerSession fs = fillSession.get(player);
-        for (int i = 0; i < PAGE_SIZE; i++) {
-            int index = page * PAGE_SIZE + i;
-            if (index >= items.size()) break;
-            Material mat = items.get(index).material;
-            boolean selected = mat == fs.replaceBlock;
-            List<String> lore = new ArrayList<>();
-            if (selected) {
-                lore.add(color(getMessage("fill-block-selected")));
-            }
-            lore.add(color(getMessage("fill-block-click-select")));
-            inv.setItem(ITEM_SLOT_START + i, icon(mat, null, lore.toArray(new String[0])));
-        }
-
-        inv.setItem(0, icon(material("close-button", Material.BARRIER),
-                color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
-        inv.setItem(8, icon(material("back-button", Material.COMPASS),
-                color(getGuiConfigString("names.back-fill", "&8[ &e返回填充工具 &8]"))));
-        if (pageCount > 1) {
-            inv.setItem(48, icon(material("prev-button", Material.ARROW),
-                    color(getGuiConfigString("names.prev", "&8[ &f上一页 &8]"))));
-            inv.setItem(50, icon(material("next-button", Material.ARROW),
-                    color(getGuiConfigString("names.next", "&8[ &f下一页 &8]"))));
-        }
-        fillPanes(inv, 0, 8, 0, 8);
-        fillPanes(inv, 45, 53, 48, 50);
-        player.openInventory(inv);
-    }
-
-    /** 填充工具点击处理 */
-    public void handleFillClick(Player player, int slot) {
-        FillSession.PlayerSession fs = fillSession.get(player);
-        switch (slot) {
-            case 0:
-                player.closeInventory();
-                return;
-            case 4: {
-                fillSession.clear(player);
-                player.sendMessage(color(getMessage("fill-reset-all-done")));
-                reopenFillMenu(player);
-                return;
-            }
-            case 8:
-                openMainMenu(player, db.getPage(player.getUniqueId(), "main"), false);
-                return;
-            case 22:
-                openFillSelect(player, 0);
-                return;
-            case 29:
-                fs.mode = FillSession.Mode.HOLLOW;
-                player.sendMessage(color(getMessage("fill-mode-set")
-                        .replace("%mode%", FillSession.Mode.HOLLOW.getDisplayName())));
-                reopenFillMenu(player);
-                return;
-            case 30:
-                fs.mode = FillSession.Mode.OUTLINE;
-                player.sendMessage(color(getMessage("fill-mode-set")
-                        .replace("%mode%", FillSession.Mode.OUTLINE.getDisplayName())));
-                reopenFillMenu(player);
-                return;
-            case 31:
-                // 替换模式 → 打开替换目标选择
-                openFillReplace(player, 0);
-                return;
-            case 32:
-                fs.mode = FillSession.Mode.KEEP;
-                player.sendMessage(color(getMessage("fill-mode-set")
-                        .replace("%mode%", FillSession.Mode.KEEP.getDisplayName())));
-                reopenFillMenu(player);
-                return;
-            case 33:
-                fs.mode = FillSession.Mode.REPLACE_ALL;
-                player.sendMessage(color(getMessage("fill-mode-set")
-                        .replace("%mode%", FillSession.Mode.REPLACE_ALL.getDisplayName())));
-                reopenFillMenu(player);
-                return;
-            case 40: {
-                // 清空方块：把 A-B 区域所有方块设为空气
-                fs.fillBlock = Material.AIR;
-                int result = fillSession.execute(player);
-                if (result > 0) {
-                    player.sendMessage(color(getMessage("fill-done").replace("%count%", String.valueOf(result))));
-                } else if (result == -1) {
-                    player.sendMessage(color(getMessage("fill-incomplete")));
-                } else if (result == -2) {
-                    player.sendMessage(color(getMessage("fill-different-world")));
-                } else {
-                    player.sendMessage(color(getMessage("fill-too-large").replace("%volume%", String.valueOf(-result))));
-                }
-                reopenFillMenu(player);
-                return;
-            }
-            case 47:
-                fs.pointA = player.getLocation();
-                player.sendMessage(color(getMessage("fill-point-a-set")
-                        .replace("%pos%", formatPos(fs.pointA))));
-                reopenFillMenu(player);
-                return;
-            case 49: {
-                int result = fillSession.execute(player);
-                if (result > 0) {
-                    player.sendMessage(color(getMessage("fill-done").replace("%count%", String.valueOf(result))));
-                } else if (result == -1) {
-                    player.sendMessage(color(getMessage("fill-incomplete")));
-                } else if (result == -2) {
-                    player.sendMessage(color(getMessage("fill-different-world")));
-                } else {
-                    player.sendMessage(color(getMessage("fill-too-large").replace("%volume%", String.valueOf(-result))));
-                }
-                reopenFillMenu(player);
-                return;
-            }
-            case 51:
-                fs.pointB = player.getLocation();
-                player.sendMessage(color(getMessage("fill-point-b-set")
-                        .replace("%pos%", formatPos(fs.pointB))));
-                reopenFillMenu(player);
-                return;
-        }
-    }
-
-    /** 填充方块选择页点击处理 */
-    public void handleFillSelectClick(Player player, int page, int slot) {
-        if (slot == 0) {
-            player.closeInventory();
-            return;
-        }
-        if (slot == 8) {
-            openFillMenu(player);
-            return;
-        }
-        List<ItemEntry> items = new ArrayList<>();
-        items.add(ItemEntry.vanilla(Material.AIR));
-        for (Material mat : Material.values()) {
-            if (mat.isItem() && !mat.isAir() && mat.isBlock() && mat.isOccluding()
-                    && !itemRegistry.isAdminItem(mat) && itemRegistry.isVisible(mat)) {
-                items.add(ItemEntry.vanilla(mat));
-            }
-        }
-        for (ItemEntry ce : itemRegistry.getCustoms()) {
-            if (ce.material.isBlock()) {
-                items.add(ce);
-            }
-        }
-        int pageCount = Math.max(1, (items.size() + PAGE_SIZE - 1) / PAGE_SIZE);
-        if (slot == 48 && pageCount > 1) {
-            openFillSelect(player, (page - 1 + pageCount) % pageCount);
-            return;
-        }
-        if (slot == 50 && pageCount > 1) {
-            openFillSelect(player, (page + 1) % pageCount);
-            return;
-        }
-        int offset = slot - ITEM_SLOT_START;
-        if (offset < 0 || offset >= PAGE_SIZE) {
-            return;
-        }
-        int index = page * PAGE_SIZE + offset;
-        if (index >= items.size()) {
-            return;
-        }
-        ItemEntry entry = items.get(index);
-        FillSession.PlayerSession fs = fillSession.get(player);
-        fs.fillBlock = entry.material;
-        player.sendMessage(color(getMessage("fill-block-set").replace("%block%",
-                entry.material == Material.AIR ? getMessage("fill-block-air")
-                        : entry.material.name().toLowerCase())));
-        openFillSelect(player, page);
-    }
-
-    /** 替换目标选择页点击处理 */
-    public void handleFillReplaceClick(Player player, int page, int slot) {
-        if (slot == 0) {
-            player.closeInventory();
-            return;
-        }
-        if (slot == 8) {
-            openFillMenu(player);
-            return;
-        }
-        List<Material> mats = new ArrayList<>();
-        for (Material mat : Material.values()) {
-            if (mat.isItem() && !mat.isAir() && mat.isBlock() && mat.isOccluding()
-                    && !itemRegistry.isAdminItem(mat) && itemRegistry.isVisible(mat)) {
-                mats.add(mat);
-            }
-        }
-        int pageCount = Math.max(1, (mats.size() + PAGE_SIZE - 1) / PAGE_SIZE);
-        if (slot == 48 && pageCount > 1) {
-            openFillReplace(player, (page - 1 + pageCount) % pageCount);
-            return;
-        }
-        if (slot == 50 && pageCount > 1) {
-            openFillReplace(player, (page + 1) % pageCount);
-            return;
-        }
-        int offset = slot - ITEM_SLOT_START;
-        if (offset < 0 || offset >= PAGE_SIZE) {
-            return;
-        }
-        int index = page * PAGE_SIZE + offset;
-        if (index >= mats.size()) {
-            return;
-        }
-        Material mat = mats.get(index);
-        FillSession.PlayerSession fs = fillSession.get(player);
-        fs.replaceBlock = mat;
-        fs.mode = FillSession.Mode.REPLACE;
-        player.sendMessage(color(getMessage("fill-mode-set")
-                .replace("%mode%", FillSession.Mode.REPLACE.getDisplayName()
-                        + " → " + mat.name().toLowerCase())));
-        openFillMenu(player);
-    }
-
-    private void reopenFillMenu(Player player) {
-        Bukkit.getScheduler().runTask(this, () -> {
-            if (player.isOnline()) {
-                openFillMenu(player);
-            }
-        });
-    }
-
     // ==================== 公共组件 ====================
 
     /** 主菜单/背包视图边框：45 漏斗 | 48 上一页 | 49 选页 | 50 下一页 | 53 垃圾桶 */
@@ -1015,19 +603,13 @@ public class ArchitectBlocks extends JavaPlugin {
         boolean isAdmin = player.hasPermission(PERM_ADMIN);
         inv.setItem(0, icon(material("close-button", Material.BARRIER),
                 color(getGuiConfigString("names.close", "&8[ &c关闭 &8]"))));
-
-        inv.setItem(1, icon(material("flight-menu-button", Material.FEATHER),
-                color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
-                color(getMessage("flight-lore"))));
         if (isAdmin) {
-            inv.setItem(4, icon(material("admin-button", Material.COMMAND_BLOCK),
+            inv.setItem(1, icon(material("admin-button", Material.COMMAND_BLOCK),
                     color(getGuiConfigString("names.admin", "&8[ &c管理员设置 &8]"))));
         }
-        if (canFill(player)) {
-            inv.setItem(7, icon(material("fill-button", Material.WOODEN_SHOVEL),
-                    color(getGuiConfigString("names.fill-tool", "&8[ &6填充工具 &8]")),
-                    color(getMessage("fill-lore"))));
-        }
+        inv.setItem(4, icon(material("flight-menu-button", Material.FEATHER),
+                color(getGuiConfigString("names.flight-menu", "&8[ &b飞行设置 &8]")),
+                color(getMessage("flight-lore"))));
         inv.setItem(8, icon(material("search-button", Material.COMPASS),
                 color(getGuiConfigString("names.search", "&8[ &b搜索 &8]")),
                 searchLore(player)));
@@ -1330,10 +912,6 @@ public class ArchitectBlocks extends JavaPlugin {
             }
         }
         return false;
-    }
-
-    public FillSession getFillSession() {
-        return fillSession;
     }
 
     public QuickItemListener getQuickItem() {

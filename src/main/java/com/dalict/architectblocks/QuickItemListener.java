@@ -247,30 +247,13 @@ public class QuickItemListener implements Listener {
             default:
                 return;
         }
-        // 同时拒绝物品使用和方块交互，防止生存模式下知识之书被原版消耗
         event.setCancelled(true);
-        event.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
-        event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
         Player player = event.getPlayer();
         if (!plugin.canUse(player)) {
             player.sendMessage(plugin.getMessage("no-permission"));
             return;
         }
-        // 延迟检测：若原版机制仍然消耗了物品，立即补回
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            if (player.isOnline() && canUseQuickItem(player) && !hasCurrent(player)) {
-                player.getInventory().addItem(createItem(player));
-            }
-        });
         plugin.openMenu(player);
-    }
-
-    /** 兜底：物品被消耗时立即阻止 */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onItemConsume(org.bukkit.event.player.PlayerItemConsumeEvent event) {
-        if (isQuickItem(event.getItem())) {
-            event.setCancelled(true);
-        }
     }
 
     /** 阻止放置 */

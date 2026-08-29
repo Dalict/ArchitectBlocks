@@ -131,11 +131,6 @@ public class Database {
             st.execute(viewTable);
             st.execute(customTable);
             st.execute(accessTable);
-            try (Statement st2 = conn.createStatement()) {
-                st2.executeUpdate("ALTER TABLE ab_access ADD COLUMN allow_fill INTEGER DEFAULT 0");
-            } catch (SQLException ignored) {
-                // 列已存在
-            }
         }
     }
 
@@ -366,19 +361,18 @@ public class Database {
         return true;
     }
 
-    /** 按名称查找授权记录（忽略大小写精确查询）：[存储名, expires, allowFill] */
+    /** 按名称查找授权记录（忽略大小写精确查询，不再全表扫描）：[存储名, expires] */
     public synchronized String[] getAccessRecord(String playerName) {
         if (conn == null) {
             return null;
         }
         try (PreparedStatement ps = conn.prepareStatement(
-                mysql ? "SELECT player, expires, allow_fill FROM ab_access WHERE player = ? COLLATE utf8mb4_general_ci"
-                      : "SELECT player, expires, allow_fill FROM ab_access WHERE player = ? COLLATE NOCASE")) {
+                mysql ? "SELECT player, expires FROM ab_access WHERE player = ? COLLATE utf8mb4_general_ci"
+                      : "SELECT player, expires FROM ab_access WHERE player = ? COLLATE NOCASE")) {
             ps.setString(1, playerName);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return new String[]{rs.getString(1), String.valueOf(rs.getLong(2)),
-                            String.valueOf(rs.getInt(3))};
+                    return new String[]{rs.getString(1), String.valueOf(rs.getLong(2))};
                 }
                 return null;
             }
@@ -388,37 +382,21 @@ public class Database {
         }
     }
 
-    /** 授权：expiresAt=0 表示永久，否则为过期毫秒时间戳；allowFill=允许使用填充工具 */
-    public void grantAccess(String playerName, long expiresAt, boolean allowFill) {
+    /** 授权：expiresAt=0 表示永久，否则为过期毫秒时间戳 */
+    public void grantAccess(String playerName, long expiresAt) {
         final long expires = expiresAt <= 0 ? 0 : expiresAt;
-        final int fill = allowFill ? 1 : 0;
-        asyncUpdate("INSERT INTO ab_access(player, expires, allow_fill) VALUES(?, ?, ?)"
-                        + (mysql ? " ON DUPLICATE KEY UPDATE expires = VALUES(expires), allow_fill = VALUES(allow_fill)"
-                                 : " ON CONFLICT(player) DO UPDATE SET expires = excluded.expires, allow_fill = excluded.allow_fill"),
+        asyncUpdate("INSERT INTO ab_access(player, expires) VALUES(?, ?)"
+                        + (mysql ? " ON DUPLICATE KEY UPDATE expires = VALUES(expires)"
+                                 : " ON CONFLICT(player) DO UPDATE SET expires = excluded.expires"),
                 ps -> {
                     try {
                         ps.setString(1, playerName);
                         ps.setLong(2, expires);
-                        ps.setInt(3, fill);
                         ps.executeUpdate();
                     } catch (SQLException e) {
                         plugin.getLogger().warning("授权写入失败: " + e.getMessage());
                     }
                 });
-    }
-
-    /** 是否拥有填充工具授权 */
-    public boolean hasFillGrant(String playerName) {
-        String[] rec = getAccessRecord(playerName);
-        if (rec == null) {
-            return false;
-        }
-        long expires = Long.parseLong(rec[1]);
-        if (expires != 0 && expires <= System.currentTimeMillis()) {
-            removeAccess(rec[0]);
-            return false;
-        }
-        return rec.length > 2 && "1".equals(rec[2]);
     }
 
     public void removeAccess(String playerName) {
@@ -441,10 +419,9 @@ public class Database {
             return out;
         }
         try (Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT player, expires, allow_fill FROM ab_access ORDER BY player")) {
+             ResultSet rs = st.executeQuery("SELECT player, expires FROM ab_access ORDER BY player")) {
             while (rs.next()) {
-                out.add(new String[]{rs.getString(1), String.valueOf(rs.getLong(2)),
-                        String.valueOf(rs.getInt(3))});
+                out.add(new String[]{rs.getString(1), String.valueOf(rs.getLong(2))});
             }
         } catch (SQLException e) {
             plugin.getLogger().warning("授权列表读取失败: " + e.getMessage());
